@@ -9,6 +9,10 @@ services:
     healthCheckPath: /
     autoDeploy: true
     envVars:
+      # --- Runtime ---
+      # Fully qualified version required. Matches the Dockerfile.
+      - key: PYTHON_VERSION
+        value: "3.10.13"
       # --- Telegram Bot Credentials ---
       - key: BOT_TOKEN
         sync: false
