@@ -33,10 +33,10 @@ services:
         sync: false
       - key: ERROR_MESSAGE
         value: "True"
-      # --- Optional (premium / payment screen) ---
+      # --- Premium / payment screen ---
       - key: SUBSCRIPTION
-        sync: false
+        value: https://graph.org/file/242b7f1b52743938d81f1.jpg
       - key: UPI_ID
-        sync: false
+        value: 20213904@axl
       - key: QR_CODE
-        sync: false
+        value: https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png
