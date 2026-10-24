@@ -1,0 +1,17 @@
+# --- Telegram & Bot Frameworks ---
+pyrofork==2.3.45
+TgCrypto
+
+# --- Asynchronous & Networking ---
+aiohttp==3.9.5
+requests
+
+# --- Database & Utilities ---
+motor
+
+# --- Web Framework (Flask Stack) ---
+Flask==1.1.2
+gunicorn==20.1.0
+Jinja2==3.0.3
+werkzeug==2.0.2
+itsdangerous==2.0.1

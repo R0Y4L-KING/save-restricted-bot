@@ -1,0 +1,23 @@
+# Environment
+.env
+
+# Logs
+logs.txt
+*.log
+
+# Pyrogram session files (NEVER commit these)
+*.session
+*.session-journal
+cantarella_Login_Bot.session
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
