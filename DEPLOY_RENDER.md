@@ -4,6 +4,9 @@ This bot runs as a **Render Web Service**. The bundled `keep_alive.py` starts a 
 Flask server on Render's `PORT` so the service stays healthy, and `render.yaml`
 already defines the build/start commands and every environment variable.
 
+> Need a database? See **[SETUP_MONGODB.md](SETUP_MONGODB.md)** to create a free
+> MongoDB Atlas cluster and get your `DB_URI`.
+
 ---
 
 ## 1. Create the service
