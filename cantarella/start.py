@@ -31,7 +31,7 @@ REACTIONS = [
     "👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🤬",
     "😢", "🎉", "🤩", "🤮", "💩", "🙏", "👌", "🕊", "🤡", "🥱",
     "🥴", "😍", "🐳", "❤️‍🔥", "🌚", "🌭", "💯", "🤣", "⚡", "🍌",
-    "🏆", "💔", "🤨", "😐", "🍓", "🍾", "💋", "🖕", "😈", "😴",
+    "🏆", "💔", "🤨", "😐", "🍓", "🍾", "💋", "😈", "😴",
     "😭", "🤓", "👻", "👨‍💻", "👀", "🎃", "🙈", "😇", "😨", "🤝",
     "✍", "🤗", "🫡", "🎅", "🎄", "☃", "💅", "🤪", "🗿", "🆒",
     "💘", "🙉", "🦄", "😘", "💊", "🙊", "😎", "👾", "🤷‍♂️", "🤷‍♀️",
@@ -48,7 +48,7 @@ if (
     hashlib.sha256(dev_text.encode('utf-8')).hexdigest() != expected_dev_hash or
     hashlib.sha256(channels_text.encode('utf-8')).hexdigest() != expected_channels_hash
 ):
-    raise Exception("Tampered developer info detected! Bot will not start. Fuck the code - crashing now.")
+    raise Exception("Tampered developer info detected! Bot will not start.")
 
 class script(object):
    
@@ -237,6 +237,11 @@ def progress(current, total, message, type):
             pass
 @Client.on_message(filters.command(["start"]))
 async def send_start(client: Client, message: Message):
+    # Deep link coming back from the shortener: /start verify_<token>
+    if len(message.command) > 1 and message.command[1].startswith("verify_"):
+        from cantarella.verify import handle_verify
+        await handle_verify(client, message)
+        return
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
     try:
@@ -417,6 +422,11 @@ async def handle_batch_input(client: Client, message: Message):
 
 async def process_save_link(client: Client, message: Message, text: str, count: int = None):
     if "https://t.me/" in text:
+        # Ad-verification gate: free users must complete the shortener first
+        from cantarella.verify import is_user_verified, send_verify_prompt
+        if not await is_user_verified(message.from_user.id):
+            await send_verify_prompt(client, message, text, count)
+            return
        
         is_limit_reached = await db.check_limit(message.from_user.id)
         if is_limit_reached:
