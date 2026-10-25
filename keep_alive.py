@@ -169,8 +169,7 @@ GATEWAY_PAGE = """<!doctype html>
   btn.addEventListener("click", function(){
     btn.disabled = true;
     status.textContent = "Verifying…";
-    var base = location.pathname.replace(/\/$/, "");
-    fetch(base + "/go", {method: "POST"})
+    fetch("/r/" + encodeURIComponent(token) + "/go", {method: "POST"})
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (d && d.ok && d.url) { window.location.replace(d.url); }
