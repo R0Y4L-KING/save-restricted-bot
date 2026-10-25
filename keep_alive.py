@@ -5,18 +5,17 @@ Keep-alive HTTP server for Render / Heroku
 Also hosts the ad-gate "Security Check" gateway:
 
   GET /v/<token>      -> browser-check page (JS)
-  GET /v/<token>/go   -> validates the token, flags gateway_passed
-                         and only then returns the bot deep link
+  GET /v/<token>/go   -> marks gateway_passed and returns what the page
+                         should go to next:
+                           shortener / direct -> the Telegram deep link
+                           page_first         -> the ad (shortener) link
 
-Why: the shortener points at /v/<token> instead of the raw Telegram
-deep link. A shortener-bypass service that only follows redirects gets
-the check page and NOT the deep link.
-
-Extra anti-bypass layer: in shortener mode the check page itself only
-loads when the browser arrives FROM the shortener (Referer header).
-A bypassed link opened directly carries no shortener referer and is
-refused. In direct mode (VERIFY_LINK_MODE=direct) the page is meant to
-be opened straight from Telegram, so the referer check is skipped.
+Modes (VERIFY_LINK_MODE):
+  shortener  - the page is reached THROUGH the shortener, so the page
+               requires a shortener Referer (bypass links are refused).
+  page_first - the bot hands out this page directly, checks run first and
+               the ad comes after; no Referer requirement.
+  direct     - same as page_first but with no ad at all.
 ========================================================
 """
 
@@ -33,17 +32,15 @@ app = Flask(__name__)
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 TOKEN_TTL = int(os.environ.get("VERIFY_TOKEN_TTL", "600"))
 
-# Host of the shortener, used for the Referer check (e.g. "vipshort.in")
 SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "vipshort.in")
 SHORTLINK_HOST = SHORTLINK_URL.replace("https://", "").replace("http://", "").strip("/").split("/")[0].lower()
 
-# Require the browser to arrive from the shortener. Set REQUIRE_REFERER=False
-# if a legitimate flow ever gets blocked (see the logs).
 REQUIRE_REFERER = os.environ.get("REQUIRE_REFERER", "True").lower() == "true"
-
-# shortener -> ad first, then the page (referer check applies)
-# direct    -> page handed out straight from the bot (referer check skipped)
 VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "shortener").strip().lower()
+
+# In these modes the page is opened straight from the bot, so a shortener
+# Referer cannot be expected.
+_NO_REFERER_MODES = ("direct", "page_first")
 
 _mongo_client = None
 
@@ -195,9 +192,9 @@ GATEWAY_PAGE = """<!doctype html>
 def gateway(token):
     referer = (request.headers.get("Referer") or "").lower()
 
-    if REQUIRE_REFERER and SHORTLINK_HOST and VERIFY_LINK_MODE != "direct":
+    if (REQUIRE_REFERER and SHORTLINK_HOST
+            and VERIFY_LINK_MODE not in _NO_REFERER_MODES):
         if SHORTLINK_HOST not in referer:
-            # No shortener referer -> this link was opened directly (bypassed).
             print(f"[gateway] BLOCKED token={token[:8]}... referer={referer!r}", flush=True)
             return Response(BLOCKED_PAGE, mimetype="text/html", status=403)
 
@@ -222,9 +219,18 @@ def gateway_go(token):
         created = int(rec.get("created_ts", 0) or 0)
         if created and (int(time.time()) - created) > TOKEN_TTL:
             return jsonify(ok=False, error="This link has expired. Please request a new one.")
+
         db.verify_tokens.update_one({"_id": token}, {"$set": {"gateway_passed": True}})
+
+        if VERIFY_LINK_MODE == "page_first":
+            # Send the user to the ad next; the ad comes back to the bot.
+            ad_link = rec.get("ad_link")
+            if not ad_link:
+                return jsonify(ok=False, error="Ad step is not ready. Please try again in a moment.")
+            return jsonify(ok=True, url=ad_link)
     except Exception:
         return jsonify(ok=False, error="Verification service error. Please try again.")
+
     return jsonify(ok=True, url="https://t.me/%s?start=verify_%s" % (BOT_USERNAME, token))
 
 

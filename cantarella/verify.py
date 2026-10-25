@@ -1,26 +1,12 @@
 # Ad / token verification gate (shortener + anti-bypass gateway)
 #
-# Flow (VERIFY_LINK_MODE=shortener, default):
-#   1. Free user sends a content link.
-#   2. Bot creates a one-time token and shortens a link to OUR OWN gateway
-#      page: https://<PUBLIC_URL>/v/<token>
-#   3. User opens the shortener (sees the ad) -> lands on the gateway page,
-#      which runs browser checks and only then releases the Telegram deep link.
-#   4. Bot validates the token (one-time, user-bound, not expired AND
-#      gateway_passed) and resumes the original request.
+# Three modes (VERIFY_LINK_MODE):
+#   shortener  (default) - bot -> AD -> own-domain checks page -> bot
+#   page_first           - bot -> own-domain checks page -> AD -> bot   (Codeflix order)
+#   direct               - bot -> own-domain checks page -> bot         (no ad)
 #
-# Flow (VERIFY_LINK_MODE=direct):
-#   Same, but the bot hands out the own-domain gateway link directly (like the
-#   Codeflix file-bot's /r/<hash> link) - no shortener, so no ad revenue.
-#
-# Anti-bypass:
-#   - The raw t.me deep link is NEVER placed in the shortener destination.
-#   - require_gateway tokens are rejected unless the gateway page set
-#     gateway_passed, so a hand-built /start verify_<token> link also fails.
-#   - In shortener mode the gateway page only loads when the browser arrives
-#     FROM the shortener (Referer check, see keep_alive.py).
-#   - One-time use + short TTL + bound to the requesting user id.
-#   - FAIL CLOSED: if the shortener produces no link we do not hand out a bypass.
+# In every mode the Telegram deep link is only accepted once the gateway page
+# has set gateway_passed, and it is one-time, short-lived and user-bound.
 
 import html
 import json
@@ -45,8 +31,7 @@ logger = LOGGER(__name__)
 VERIFY_PREFIX = "verify_"
 GATEWAY_BASE = (PUBLIC_URL or "").rstrip("/")
 
-# "shortener" -> ad first, then the security page (earns money, default)
-# "direct"    -> hand out the own-domain security link directly (no ad)
+# "shortener" | "page_first" | "direct"
 VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "shortener").strip().lower()
 
 # Some shorteners reject the default aiohttp/python User-Agent.
@@ -55,7 +40,6 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
 )
 
-# Throttle for admin alerts so a down shortener doesn't spam the log channel.
 _ALERT_COOLDOWN = 600
 _last_alert_ts = 0
 
@@ -84,7 +68,6 @@ def _api_endpoint() -> str:
 
 
 async def _notify_admin(client: Client, text: str):
-    """Send a diagnostic line to the log channel (throttled)."""
     global _last_alert_ts
     now = time.time()
     if now - _last_alert_ts < _ALERT_COOLDOWN:
@@ -123,7 +106,6 @@ async def _shortener_call(dest: str):
 
 
 def _extract_link(body: str):
-    """Pull a shortened URL out of a shortener response (JSON or plain text)."""
     if not body:
         return None
     try:
@@ -150,7 +132,6 @@ def _extract_link(body: str):
 
 
 async def shorten_url_verbose(dest: str):
-    """Returns (link_or_None, detail_string) - detail is for diagnostics."""
     body, err = await _shortener_call(dest)
     if err:
         return None, f"call failed: {err}"
@@ -161,7 +142,6 @@ async def shorten_url_verbose(dest: str):
 
 
 async def shorten_url(dest: str):
-    """Shorten a URL with the configured shortener. Returns None on failure."""
     link, detail = await shorten_url_verbose(dest)
     if not link:
         logger.error(f"Shortener failed: {detail}")
@@ -208,7 +188,6 @@ def _verify_buttons(verify_link: str):
 
 
 def _admin_hint(detail: str) -> str:
-    """Short, actionable hint for the bot owner."""
     if "SHORTLINK_API is not set" in detail:
         return "Set SHORTLINK_API in Render -> Environment, then redeploy."
     if "HTTP 401" in detail or "HTTP 403" in detail:
@@ -223,7 +202,6 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
     user_id = message.from_user.id
     token = secrets.token_urlsafe(16)
 
-    # When PUBLIC_URL is known we route through our own anti-bypass gateway.
     require_gateway = bool(GATEWAY_BASE)
 
     try:
@@ -235,9 +213,25 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
     deep_link = f"https://t.me/{bot.username}?start={VERIFY_PREFIX}{token}"
     gateway_url = f"{GATEWAY_BASE}/v/{token}" if require_gateway else None
 
-    if gateway_url and VERIFY_LINK_MODE == "direct":
-        # File-bot style: hand out the own-domain security link directly.
-        verify_link, detail = gateway_url, "direct gateway link (no ad)"
+    verify_link = None
+    detail = ""
+
+    if gateway_url and VERIFY_LINK_MODE in ("direct", "page_first"):
+        # Own-domain link handed out straight from the bot (file-bot style).
+        verify_link = gateway_url
+        detail = f"{VERIFY_LINK_MODE} gateway link"
+        if VERIFY_LINK_MODE == "page_first":
+            # Checks first, then the ad, then back to the bot. The ad link is
+            # stored on the token and only released by the gateway page.
+            ad_link, ad_detail = await shorten_url_verbose(deep_link)
+            if ad_link:
+                try:
+                    await db.vcol.update_one({"_id": token}, {"$set": {"ad_link": ad_link}})
+                except Exception as e:
+                    logger.error(f"Failed to store ad link: {e}")
+            else:
+                verify_link = None
+                detail = f"ad link failed: {ad_detail}"
     else:
         destination = gateway_url or deep_link
         if not require_gateway:
@@ -245,8 +239,7 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
         verify_link, detail = await shorten_url_verbose(destination)
 
     if not verify_link:
-        # FAIL CLOSED. Handing out the raw deep link here would let a user
-        # verify without watching the ad, so we refuse instead.
+        # FAIL CLOSED - never hand out a bypass.
         logger.error(f"Verification blocked: {detail}")
         try:
             await db.vcol.delete_one({"_id": token})
@@ -258,7 +251,6 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
             "<i>Our verification service is not responding right now. "
             "Please send your link again in a minute.</i>"
         )
-        # Show the real reason to admins only, so the owner can fix it fast.
         if message.from_user.id in ADMINS:
             user_text += (
                 "\n\n<b>🔧 Admin diagnostic</b>\n"
@@ -295,7 +287,7 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
 
 
 async def handle_verify(client: Client, message: Message):
-    """Handle the /start verify_<token> redirect coming back from the gateway."""
+    """Handle the /start verify_<token> redirect coming back from the ad."""
     payload = message.command[1] if len(message.command) > 1 else ""
     token = payload[len(VERIFY_PREFIX):] if payload.startswith(VERIFY_PREFIX) else payload
     user_id = message.from_user.id
@@ -326,7 +318,6 @@ async def handle_verify(client: Client, message: Message):
     target = rec.get("target")
     if target:
         try:
-            # Imported here to avoid a circular import at module load time.
             from cantarella.start import process_save_link
             await process_save_link(client, message, target, rec.get("count"))
         except Exception as e:
