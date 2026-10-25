@@ -196,7 +196,7 @@ class Database:
             return 0
         return int(user.get('verified_until', 0) or 0)
 
-    async def create_verify_token(self, token, user_id, target, count):
+    async def create_verify_token(self, token, user_id, target, count, require_gateway=False):
         """Store a one-time verify token bound to a single user."""
         await self.vcol.insert_one({
             '_id': token,
@@ -204,6 +204,8 @@ class Database:
             'target': target,
             'count': count,
             'used': False,
+            'require_gateway': bool(require_gateway),
+            'gateway_passed': False,
             'created_ts': int(time.time())
         })
 
@@ -211,7 +213,8 @@ class Database:
         """
         Validate and burn a verify token (one-time use).
         Returns the record if valid, else None.
-        Checks: exists, not used, belongs to this user, not expired.
+        Checks: exists, not used, belongs to this user, not expired,
+        and (when required) that the browser gateway was passed.
         """
         rec = await self.vcol.find_one({'_id': token})
         if not rec:
@@ -222,6 +225,10 @@ class Database:
             return None
         created = int(rec.get('created_ts', 0) or 0)
         if created and (int(time.time()) - created) > int(ttl_seconds):
+            return None
+        # Anti-bypass: the shortener points at our gateway page, and only that
+        # page can set gateway_passed. A hand-built deep link never has it.
+        if rec.get('require_gateway') and not rec.get('gateway_passed'):
             return None
         await self.vcol.update_one({'_id': token}, {'$set': {'used': True}})
         return rec
