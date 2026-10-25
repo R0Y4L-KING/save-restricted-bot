@@ -116,6 +116,7 @@ class Bot(Client):
         commands = [
             BotCommand("start", "Start the bot"),
             BotCommand("help", "Show help"),
+            BotCommand("batch", "Batch download a message range"),
             BotCommand("login", "Login"),
             BotCommand("logout", "Logout"),
             BotCommand("cancel", "Cancel current action"),

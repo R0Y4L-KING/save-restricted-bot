@@ -71,8 +71,9 @@ class script(object):
 • Send the private link (e.g., <code>t.me/c/123...</code>).
 • Bot accesses content using your authenticated session.
 <blockquote><b>3️⃣ Batch Downloading Mode</b></blockquote>
-• Initiate with <code>/batch</code> for multiple files.
-• Follow interactive prompts for seamless processing.
+• Use <code>/batch</code>, or just send the link directly.
+• Send a range link, e.g. <code>https://t.me/channel/100-110</code>.
+• The bot saves every message in that ID range.
 <blockquote><b>🛑 Free User Limitations:</b></blockquote>
 • <b>Daily Quota:</b> 10 Files / 24 Hours
 • <b>File Size Cap:</b> 2GB Maximum
@@ -324,6 +325,29 @@ async def settings_panel(client, callback_query):
 @Client.on_message(filters.text & filters.private & ~filters.regex("^/"))
 async def save(client: Client, message: Message):
     if "https://t.me/" in message.text:
+        await process_save_link(client, message, message.text)
+
+
+@Client.on_message(filters.command("batch") & filters.private)
+async def batch_command(client: Client, message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) > 1 and "https://t.me/" in parts[1]:
+        await process_save_link(client, message, parts[1].strip())
+        return
+    await message.reply(
+        "<b>📦 Batch Mode</b>\n\n"
+        "Send me a message link with a <b>range</b> and I'll save every file in it.\n\n"
+        "<b>Format:</b> <code>https://t.me/channel/100-110</code>\n\n"
+        "<blockquote>• Saves messages with ID 100 to 110.\n"
+        "• Works for public channels, and for private ones after /login.\n"
+        "• Use /cancel to stop in the middle.</blockquote>\n\n"
+        "<i>You can also send it directly:</i> <code>/batch https://t.me/channel/100-110</code>",
+        parse_mode=enums.ParseMode.HTML
+    )
+
+
+async def process_save_link(client: Client, message: Message, text: str):
+    if "https://t.me/" in text:
        
         is_limit_reached = await db.check_limit(message.from_user.id)
         if is_limit_reached:
@@ -337,7 +361,7 @@ async def save(client: Client, message: Message):
        
         if batch_temp.IS_BATCH.get(message.from_user.id) == False:
             return await message.reply_text("<b>⚠️ A Task is Currently Processing.</b>\n<i>Please wait for completion or use /cancel to stop.</i>", parse_mode=enums.ParseMode.HTML)
-        datas = message.text.split("/")
+        datas = text.split("/")
         temp = datas[-1].replace("?single", "").split("-")
         fromID = int(temp[0].strip())
         try:
@@ -345,8 +369,8 @@ async def save(client: Client, message: Message):
         except:
             toID = fromID
         batch_temp.IS_BATCH[message.from_user.id] = False
-        is_private_link = "https://t.me/c/" in message.text
-        is_batch = "https://t.me/b/" in message.text
+        is_private_link = "https://t.me/c/" in text
+        is_batch = "https://t.me/b/" in text
         is_public_link = not is_private_link and not is_batch
         for msgid in range(fromID, toID + 1):
            

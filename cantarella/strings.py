@@ -69,6 +69,7 @@ COMMANDS_TXT = """<b>📜 All Available Commands</b>
 /login  — Connect account
 /logout — Disconnect account
 /cancel — Stop current task
+/batch — Batch download a range
 </blockquote>
 
 <b>💎 Plan & Quota</b>
