@@ -15,6 +15,9 @@ from pyrogram.errors import (
 from pyrogram import enums
 from config import API_ID, API_HASH
 from database.db import db
+from logger import LOGGER
+
+logger = LOGGER(__name__)
 
 LOGIN_STATE = {}
 cancel_keyboard = ReplyKeyboardMarkup(
@@ -149,7 +152,7 @@ async def login_handler(bot: Client, message: Message):
         return
    
     if step == "WAITING_PHONE":
-        phone_number = text.replace(" ", "")
+        phone_number = "".join(text.split())
        
         temp_client = Client(
             name=f"session_{user_id}",
@@ -215,7 +218,8 @@ async def login_handler(bot: Client, message: Message):
             del LOGIN_STATE[user_id]
    
     elif step == "WAITING_CODE":
-        phone_code = text.replace(" ", "")
+        # Strip ALL whitespace (spaces, newlines, non-breaking spaces from copy/paste)
+        phone_code = "".join(text.split())
        
         temp_client = state["data"]["client"]
         phone_number = state["data"]["phone"]
@@ -242,6 +246,29 @@ async def login_handler(bot: Client, message: Message):
             )
         except PhoneCodeExpired:
             animation_task.cancel()
+            logger.warning(f"PhoneCodeExpired for {user_id} - sending a fresh code")
+            # Telegram invalidates the old phone_code_hash (a second /login, a
+            # resend, a restart...). Instead of killing the session, request a
+            # fresh code and stay on the same step.
+            resent = False
+            try:
+                new_code = await temp_client.send_code(phone_number)
+                state["data"]["hash"] = new_code.phone_code_hash
+                state["step"] = "WAITING_CODE"
+                resent = True
+                await status_msg.edit(
+                    "<b>⏰ That code expired.</b>\n\n"
+                    f"<i>Progress: {progress}</i>\n\n"
+                    "📩 A <b>fresh code</b> has just been sent to your Telegram app.\n\n"
+                    "Please send the <b>new</b> code (spaces are fine, e.g. <code>1 2 3 4 5</code>).",
+                    parse_mode=enums.ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Could not resend code for {user_id}: {e}")
+
+            if resent:
+                return
+
             try:
                 await status_msg.delete()
             except Exception:
@@ -252,8 +279,11 @@ async def login_handler(bot: Client, message: Message):
                 parse_mode=enums.ParseMode.HTML,
                 reply_markup=remove_keyboard
             )
-            await temp_client.disconnect()
-            del LOGIN_STATE[user_id]
+            try:
+                await temp_client.disconnect()
+            except Exception:
+                pass
+            LOGIN_STATE.pop(user_id, None)
         except SessionPasswordNeeded:
             animation_task.cancel()
            
