@@ -11,8 +11,10 @@
 # Security notes:
 #   - Tokens are 128-bit random (secrets.token_urlsafe), so they cannot be guessed.
 #   - One-time use + short TTL + bound to the requesting user id.
-#   - No forgeable prefix trick: without a valid DB record the gate cannot be passed.
+#   - FAIL CLOSED: if the shortener cannot produce a link we do NOT hand out the
+#     raw deep link, otherwise users could verify without watching the ad.
 
+import html
 import json
 import secrets
 import time
@@ -23,7 +25,7 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import (
     IS_VERIFY, SHORTLINK_URL, SHORTLINK_API, SHORTLINK_ALIAS,
-    VERIFY_EXPIRE, VERIFY_TOKEN_TTL, TUT_VID, VERIFY_PIC,
+    VERIFY_EXPIRE, VERIFY_TOKEN_TTL, TUT_VID, VERIFY_PIC, ADMINS,
 )
 from database.db import db
 from logger import LOGGER
@@ -45,19 +47,24 @@ def _duration_text(seconds: int) -> str:
     return " ".join(parts) or f"{seconds}s"
 
 
-async def shorten_url(dest: str):
-    """Shorten a URL with the configured shortener. Returns None on failure."""
-    if not SHORTLINK_API:
-        logger.warning("SHORTLINK_API not set - skipping shortener.")
-        return None
-
+def _api_endpoint() -> str:
     base = (SHORTLINK_URL or "").strip()
     if not base:
-        return None
+        return ""
     if not base.startswith("http"):
         base = "https://" + base
     if not base.rstrip("/").endswith("/api"):
         base = base.rstrip("/") + "/api"
+    return base
+
+
+async def _shortener_call(dest: str):
+    """Call the shortener. Returns (raw_body, error_string)."""
+    if not SHORTLINK_API:
+        return None, "SHORTLINK_API is not set"
+    endpoint = _api_endpoint()
+    if not endpoint:
+        return None, "SHORTLINK_URL is not set"
 
     params = {"api": SHORTLINK_API, "url": dest}
     if SHORTLINK_ALIAS:
@@ -66,13 +73,17 @@ async def shorten_url(dest: str):
     try:
         timeout = aiohttp.ClientTimeout(total=15)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(base, params=params) as resp:
+            async with session.get(endpoint, params=params) as resp:
                 body = (await resp.text()).strip()
+        return body, None
     except Exception as e:
-        logger.error(f"Shortener request failed: {e}")
-        return None
+        return None, f"{type(e).__name__}: {e}"
 
-    # Most shorteners answer with JSON; accept a few common field names.
+
+def _extract_link(body: str):
+    """Pull a shortened URL out of a shortener response (JSON or plain text)."""
+    if not body:
+        return None
     try:
         data = json.loads(body)
         if isinstance(data, dict):
@@ -83,13 +94,21 @@ async def shorten_url(dest: str):
                     return str(val)
     except Exception:
         pass
-
-    # Some answer with the plain shortened URL.
     if body.startswith("http"):
         return body.split()[0]
-
-    logger.error(f"Shortener returned an unexpected response: {body[:200]}")
     return None
+
+
+async def shorten_url(dest: str):
+    """Shorten a URL with the configured shortener. Returns None on failure."""
+    body, err = await _shortener_call(dest)
+    if err:
+        logger.error(f"Shortener call failed: {err}")
+        return None
+    link = _extract_link(body)
+    if not link:
+        logger.error(f"Shortener returned an unexpected response: {str(body)[:200]}")
+    return link
 
 
 async def is_user_verified(user_id) -> bool:
@@ -144,12 +163,28 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
     bot = await client.get_me()
     deep_link = f"https://t.me/{bot.username}?start={VERIFY_PREFIX}{token}"
     short_link = await shorten_url(deep_link)
-    verify_link = short_link or deep_link
+
     if not short_link:
-        logger.warning("Shortener unavailable - falling back to direct deep link (no ads).")
+        # FAIL CLOSED. Handing out the raw deep link here would let a user
+        # verify without watching the ad, so we refuse instead.
+        logger.error(
+            "Verification blocked: shortener produced no link. "
+            "Check SHORTLINK_API / SHORTLINK_URL (use /shorttest)."
+        )
+        try:
+            await db.vcol.delete_one({"_id": token})
+        except Exception:
+            pass
+        await message.reply(
+            "<b>⚠️ Verification is temporarily unavailable.</b>\n\n"
+            "<i>Our verification service is not responding right now. "
+            "Please send your link again in a minute.</i>",
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
 
     caption = VERIFY_TEXT.format(duration=_duration_text(VERIFY_EXPIRE))
-    markup = InlineKeyboardMarkup(_verify_buttons(verify_link))
+    markup = InlineKeyboardMarkup(_verify_buttons(short_link))
 
     try:
         await message.reply_photo(
@@ -212,3 +247,24 @@ async def verify_command(client: Client, message: Message):
         )
         return
     await send_verify_prompt(client, message)
+
+
+@Client.on_message(filters.command("shorttest") & filters.user(ADMINS) & filters.private)
+async def shorttest(client: Client, message: Message):
+    """Admin: call the shortener once and show the raw response (debugging)."""
+    body, err = await _shortener_call("https://t.me/ModAppsKing")
+    if err:
+        await message.reply(
+            f"<b>❌ Shortener call failed</b>\n\n<code>{html.escape(err)}</code>",
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
+
+    link = _extract_link(body)
+    verdict = "✅ parsed OK" if link else "❌ parser did NOT find a link"
+    await message.reply(
+        f"<b>Shortener endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
+        f"<b>Result:</b> {verdict}\n\n"
+        f"<b>Raw response:</b>\n<code>{html.escape(str(body)[:900])}</code>",
+        parse_mode=enums.ParseMode.HTML
+    )
