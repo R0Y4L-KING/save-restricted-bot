@@ -34,6 +34,12 @@ logger = LOGGER(__name__)
 
 VERIFY_PREFIX = "verify_"
 
+# Some shorteners reject the default aiohttp/python User-Agent.
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
+)
+
 # Throttle for admin alerts so a down shortener doesn't spam the log channel.
 _ALERT_COOLDOWN = 600
 _last_alert_ts = 0
@@ -90,7 +96,8 @@ async def _shortener_call(dest: str):
 
     try:
         timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
             async with session.get(endpoint, params=params) as resp:
                 body = (await resp.text()).strip()
                 if resp.status != 200:
@@ -115,7 +122,6 @@ def _extract_link(body: str):
             val = data.get(key)
             if val and str(val).startswith("http"):
                 return str(val)
-        # some APIs nest the payload under "data"
         inner = data.get("data")
         if isinstance(inner, dict):
             for key in ("shortenedUrl", "shortUrl", "url", "link", "short"):
@@ -186,6 +192,17 @@ def _verify_buttons(verify_link: str):
     ]
 
 
+def _admin_hint(detail: str) -> str:
+    """Short, actionable hint for the bot owner."""
+    if "SHORTLINK_API is not set" in detail:
+        return "Set SHORTLINK_API in Render -> Environment, then redeploy."
+    if "HTTP 401" in detail or "HTTP 403" in detail:
+        return "Shortener rejected the API key (wrong/invalid key, or server IP blocked)."
+    if "unparsed response" in detail:
+        return "Shortener replied in an unknown format - send /shorttest output to your dev."
+    return "Shortener unreachable from Render - check the key and try /shorttest."
+
+
 async def send_verify_prompt(client: Client, message: Message, target: str = None, count: int = None):
     """Create a one-time token, shorten the deep link and send the verify screen."""
     user_id = message.from_user.id
@@ -208,18 +225,28 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
             await db.vcol.delete_one({"_id": token})
         except Exception:
             pass
+
+        user_text = (
+            "<b>⚠️ Verification is temporarily unavailable.</b>\n\n"
+            "<i>Our verification service is not responding right now. "
+            "Please send your link again in a minute.</i>"
+        )
+        # Show the real reason to admins only, so the owner can fix it fast.
+        if message.from_user.id in ADMINS:
+            user_text += (
+                "\n\n<b>🔧 Admin diagnostic</b>\n"
+                f"<b>Endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
+                f"<b>Reason:</b> <code>{html.escape(detail)}</code>\n"
+                f"<i>{html.escape(_admin_hint(detail))}</i>"
+            )
+        await message.reply(user_text, parse_mode=enums.ParseMode.HTML)
+
         await _notify_admin(
             client,
             "<b>⚠️ Ad-gate shortener failed</b>\n\n"
             f"<b>Endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
             f"<b>Reason:</b> <code>{html.escape(detail)}</code>\n\n"
-            "<i>Fix SHORTLINK_API / SHORTLINK_URL, or send /shorttest for a live check.</i>"
-        )
-        await message.reply(
-            "<b>⚠️ Verification is temporarily unavailable.</b>\n\n"
-            "<i>Our verification service is not responding right now. "
-            "Please send your link again in a minute.</i>",
-            parse_mode=enums.ParseMode.HTML
+            f"<i>{html.escape(_admin_hint(detail))}</i>"
         )
         return
 
@@ -297,7 +324,8 @@ async def shorttest(client: Client, message: Message):
         await message.reply(
             f"<b>❌ Shortener call failed</b>\n\n"
             f"<b>Endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
-            f"<b>Reason:</b> <code>{html.escape(err)}</code>",
+            f"<b>Reason:</b> <code>{html.escape(err)}</code>\n\n"
+            f"<i>{html.escape(_admin_hint('call failed: ' + err))}</i>",
             parse_mode=enums.ParseMode.HTML
         )
         return
