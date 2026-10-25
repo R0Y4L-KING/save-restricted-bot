@@ -28,8 +28,8 @@ async def my_plan(client: Client, message: Message):
     # 2. Fetch User Data Directly from DB
     user_data = await db.col.find_one({'id': user_id})
     
-    # Defaults
-    is_premium = user_data.get('is_premium', False)
+    # Real premium status (handles permanent + expiry)
+    is_premium = bool(await db.check_premium(user_id))
     expiry = user_data.get('premium_expiry')
     daily_usage = user_data.get('daily_usage', 0)
     # Note: total_saves needs to be tracked in your traffic logic to show up here
@@ -52,7 +52,7 @@ async def my_plan(client: Client, message: Message):
             except Exception:
                 expiry_text = "<code>Active</code>"
         else:
-            expiry_text = "<code>Permanent</code>"
+            expiry_text = "<code>Lifetime</code>"
 
         plan_text = (
             f"<b>👑 Premium Status: Active</b>\n\n"
@@ -135,13 +135,26 @@ async def show_premium_plans(message_or_query):
 # ADMIN COMMANDS - Secure & Detailed
 # ======================================================
 
+PREMIUM_BENEFITS = (
+    "<b>Your benefits are now active:</b>\n"
+    "<blockquote>"
+    "♾️ Unlimited downloads (no daily limit)\n"
+    "🚀 No verification / ad step\n"
+    "📂 Larger file sizes\n"
+    "🖼 Custom thumbnail & caption\n"
+    "⚡ Priority speed\n"
+    "</blockquote>\n\n"
+    "<i>Send me any post link to start. Enjoy! ❤️</i>"
+)
+
+
 @Client.on_message(filters.command("add_premium") & filters.user(ADMINS) & filters.private)
 async def add_premium_admin(client: Client, message: Message):
     if len(message.command) < 3:
         return await message.reply_text(
             "<b>⚠️ Admin Usage:</b>\n"
             "<code>/add_premium &lt;user_id&gt; &lt;days&gt;</code>\n\n"
-            "<i>Use 0 for permanent premium.</i>",
+            "<i>Use 0 for lifetime premium.</i>",
             parse_mode=enums.ParseMode.HTML
         )
 
@@ -151,7 +164,7 @@ async def add_premium_admin(client: Client, message: Message):
 
         if days == 0:
             expiry_date = None
-            duration_text = "Permanent"
+            duration_text = "Lifetime"
         else:
             expiry_date = (date.today() + timedelta(days=days)).isoformat()
             duration_text = f"{days} days (until {expiry_date})"
@@ -159,10 +172,43 @@ async def add_premium_admin(client: Client, message: Message):
         # Update DB
         await db.add_premium(user_id, expiry_date)
 
+        # ---- Notify the user themselves ------------------------------------
+        if days == 0:
+            user_msg = (
+                "<b>🎉 Premium Activated!</b>\n\n"
+                "<blockquote>You have received <b>Lifetime Premium</b> access.\n"
+                "It never expires.</blockquote>\n\n"
+                + PREMIUM_BENEFITS
+            )
+        else:
+            user_msg = (
+                "<b>🎉 Premium Activated!</b>\n\n"
+                f"<blockquote>You have received premium access for <b>{days} days</b>.\n"
+                f"Expires on: <code>{expiry_date}</code></blockquote>\n\n"
+                + PREMIUM_BENEFITS
+            )
+
+        delivered = True
+        try:
+            await client.send_message(
+                user_id,
+                user_msg,
+                parse_mode=enums.ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            delivered = False
+            logger.warning(f"Could not DM user {user_id} about premium: {e}")
+
+        admin_note = "" if delivered else (
+            "\n\n<i>⚠️ Could not message the user (they may have blocked the bot "
+            "or never started it).</i>"
+        )
         await message.reply_text(
             f"<b>✅ Premium Added Successfully</b>\n\n"
             f"<b>User ID:</b> <code>{user_id}</code>\n"
-            f"<b>Duration:</b> {duration_text}",
+            f"<b>Duration:</b> {duration_text}"
+            + admin_note,
             parse_mode=enums.ParseMode.HTML
         )
 
@@ -181,7 +227,22 @@ async def remove_premium_admin(client: Client, message: Message):
     try:
         user_id = int(message.command[1])
         await db.remove_premium(user_id)
-        await message.reply_text(f"✅ Premium removed from <code>{user_id}</code>.")
+
+        delivered = True
+        try:
+            await client.send_message(
+                user_id,
+                "<b>ℹ️ Premium Removed</b>\n\n"
+                "<i>Your premium access has ended. You can renew anytime with "
+                "/premium.</i>",
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception as e:
+            delivered = False
+            logger.warning(f"Could not DM user {user_id} about premium removal: {e}")
+
+        note = "" if delivered else "\n<i>(user could not be messaged)</i>"
+        await message.reply_text(f"✅ Premium removed from <code>{user_id}</code>.{note}")
     except Exception as e:
         await message.reply_text(f"Error: {e}")
 
