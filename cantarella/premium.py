@@ -86,10 +86,9 @@ async def my_plan(client: Client, message: Message):
         parse_mode=enums.ParseMode.HTML
     )
 
-# /premium - Premium Plans Information
-@Client.on_message(filters.command("premium") & filters.private)
-async def premium_info(client: Client, message: Message):
-    await show_premium_plans(message)
+# NOTE: the /premium command is now handled by start.py's payment screen
+# (pricing + UPI ID + QR + Pay Now). This reusable view is still used by the
+# "View Premium Plans" button.
 
 # ======================================================
 # PREMIUM PLANS VIEW (Reusable)

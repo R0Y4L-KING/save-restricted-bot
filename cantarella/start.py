@@ -288,7 +288,7 @@ async def send_help(client: Client, message: Message):
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML
     )
-@Client.on_message(filters.command(["plan", "myplan", "premium"]))
+@Client.on_message(filters.command(["plan", "premium"]))
 async def send_plan(client: Client, message: Message):
     buttons = [
         [InlineKeyboardButton("💳 Pay Now (UPI)", url=PAY_URL)],
