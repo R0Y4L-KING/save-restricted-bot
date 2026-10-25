@@ -23,23 +23,36 @@ handing out a free pass.
 
 ## Anti-bypass (how links can't be skipped)
 
-Most bypass tools (bypass.vip, adlinkfly bypass, etc.) work by **following the
-shortener redirect server-side** and handing the user the destination URL. We stop
-that at several layers:
+Bypass tools (bypass.vip, adlinkfly bypass, "Nick Bypass Bot", …) work by
+**resolving the shortener server-side** and handing the user the destination URL,
+so the user never sees the ad. We fight that at several layers:
 
 | Layer | What it stops |
 | ----- | ------------- |
-| **Gateway page** (`/v/<token>`) | The shortener points here, not at Telegram. The deep link is **not present in the HTML** — it is only returned by `/v/<token>/go` after the checks pass. A redirect-follower gets nothing. |
+| **Referer check** (`REQUIRE_REFERER`) | The security page only loads if the browser arrived **from the shortener**. A bypassed link opened directly (no Referer), or from Telegram/another site, gets **HTTP 403**. |
+| **Gateway page** (`/v/<token>`) | The deep link is **not present in the HTML** — it is only returned by `/v/<token>/go` after the checks pass. A redirect-follower gets nothing. |
 | **`gateway_passed` flag** | A hand-built `t.me/<bot>?start=verify_<token>` link is **rejected** unless the gateway page set the flag in MongoDB. |
 | **One-time use** | Replaying a used link does nothing. |
 | **Short TTL** | Links older than `VERIFY_TOKEN_TTL` are rejected. |
 | **User-bound** | The token is tied to the requesting user id — sharing it with someone else does nothing. |
 | **128-bit token** | `secrets.token_urlsafe(16)` — cannot be guessed. |
 
+### If a legit user ever gets blocked
+
+The Referer check relies on the browser sending the shortener's referrer when it
+redirects. If your shortener redirects in a way that strips it, set:
+
+```
+REQUIRE_REFERER=False
+```
+
+and redeploy. The Render logs show one line per gateway hit:
+`[gateway] OK/BLOCKED token=... referer='...'` — check that first.
+
 > Honest note: the browser checks (WebDriver / canvas / human interaction) are
 > **client-side** and a determined attacker with a stealth headless browser can
-> evade them. The server-side layers (`gateway_passed`, one-time, TTL, user-bound)
-> are what actually make casual bypassing pointless.
+> evade them. The server-side layers (`REQUIRE_REFERER`, `gateway_passed`,
+> one-time, TTL, user-bound) are what actually make casual bypassing pointless.
 
 ---
 
@@ -48,11 +61,12 @@ that at several layers:
 | Variable            | Default            | Meaning                                                        |
 | ------------------- | ------------------ | -------------------------------------------------------------- |
 | `IS_VERIFY`         | `True`             | Master switch. `False` disables the gate for everyone.         |
-| `SHORTLINK_URL`     | `vipshort.in`      | Your shortener host.                                           |
+| `SHORTLINK_URL`     | `vipshort.in`      | Your shortener host (also used for the Referer check).         |
 | `SHORTLINK_API`     | *(empty)*          | **Secret** — your shortener API key.                           |
 | `VERIFY_EXPIRE`     | `21600`            | How long a user stays verified, in seconds (21600 = 6 hours).  |
 | `VERIFY_TOKEN_TTL`  | `600`              | How long a verify link stays usable, in seconds (10 minutes).  |
 | `PUBLIC_URL`        | *(auto)*           | Base URL of this service, used to build the gateway. On Render it is read from `RENDER_EXTERNAL_URL` automatically. |
+| `REQUIRE_REFERER`   | `True`             | Block gateway visits that did not come from the shortener.     |
 | `TUT_VID`           | `https://t.me/ModAppsKing` | Tutorial link shown on the verify screen.              |
 | `VERIFY_PIC`        | start banner       | Photo shown on the verify screen.                              |
 
@@ -92,5 +106,6 @@ bot accepts either. If your shortener uses a different response shape, run
 2. Tap **Verify Now** → you land on the **Security Verification** page → tap Continue
    → you are back in the bot with *"✅ Verification successful!"* and the download starts.
 3. Send another link within 6 hours → works **without** asking again.
-4. Try to fake it: send `/start verify_<some-token>` directly → it should be refused.
-5. Premium users (`/add_premium`) never see the gate.
+4. Try to fake it: send `/start verify_<some-token>` directly → refused.
+5. Try to bypass: paste the gateway URL straight into a browser (no referer) → 403.
+6. Premium users (`/add_premium`) never see the gate.
