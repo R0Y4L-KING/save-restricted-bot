@@ -156,17 +156,23 @@ GATEWAY_PAGE = """<!doctype html>
     }catch(e){ return false; }
   }
 
-  var envOk = !!(window.navigator && window.navigator.userAgent) && typeof window.fetch === "function";
+  var ua = navigator.userAgent || "";
+
+  // 1. Browser environment
+  var envOk = !!ua && typeof window.fetch === "function";
   add(steps[0], envOk); tick();
 
+  // 2. WebDriver / automation detection.
+  //    Only trust solid signals - navigator.plugins is empty on real Android
+  //    Chrome, so it must NOT be used here (it caused false failures).
   var wd = (navigator.webdriver === true)
-        || /HeadlessChrome|PhantomJS|Selenium|puppeteer|playwright/i.test(navigator.userAgent)
-        || (navigator.plugins && navigator.plugins.length === 0 && /Chrome/i.test(navigator.userAgent));
+        || /HeadlessChrome|PhantomJS|Selenium|puppeteer|playwright/i.test(ua);
   add(steps[1], !wd); tick();
 
+  // 3. Canvas fingerprint (capability check)
   add(steps[2], fingerprint()); tick();
 
-  // Human interaction: brief settle time, shown as pending then passed.
+  // 4. Human interaction: brief settle time, shown as pending then passed.
   var humanLi = add(steps[3], false, true);
   status.textContent = "Finalizing verification…";
   setTimeout(function(){
