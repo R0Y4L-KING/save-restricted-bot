@@ -59,6 +59,14 @@ class script(object):
 <b>⚡ Performance: 10x High-Speed Processing</b>
 <b>🔐 Security: End-to-End Encrypted</b>
 <b>📊 Uptime: 99.9% Guaranteed</b></blockquote>
+<b>👇 How To Use Me:</b>
+<blockquote><b>1️⃣ Send me a post link</b>
+Example: <code>https://t.me/channel/123</code>
+<b>2️⃣ Private / restricted channel?</b>
+Do <code>/login</code> first, then send the link.
+<b>3️⃣ Want many files at once?</b>
+Use <code>/batch</code> and send a range link.
+<b>4️⃣ Free users:</b> verify once and get full access for 6 hours.</blockquote>
 <b>👇 Select an Option Below to Get Started:</b>
 """
     HELP_TXT = """<b>📚 Comprehensive Help & User Guide</b>
@@ -131,6 +139,15 @@ Remove all restrictions and enjoy seamless downloading.
 <blockquote><b>🔓 Upgrade to Premium</b></blockquote>
 Download files up to 4GB and beyond with no limits!
 """
+    NO_LINK_TXT = """<b>🤔 I didn't find a link in that.</b>
+
+<blockquote><b>How to use me:</b>
+• Send me a Telegram post link to save it
+  <i>Example:</i> <code>https://t.me/channel/123</code>
+• Private/restricted channel? Do <code>/login</code> first
+• Many files at once? Use <code>/batch</code></blockquote>
+
+<i>Send /help for the full guide.</i>"""
 def humanbytes(size):
     if not size:
         return "0B"
@@ -340,6 +357,9 @@ async def save(client: Client, message: Message):
         return
     if "https://t.me/" in message.text:
         await process_save_link(client, message, message.text)
+        return
+    # Not a link and not a command -> teach the user how to use the bot.
+    await message.reply(script.NO_LINK_TXT, parse_mode=enums.ParseMode.HTML)
 
 
 @Client.on_message(filters.command("batch") & filters.private)
