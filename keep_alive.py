@@ -63,46 +63,48 @@ def health():
     return Response("OK", status=200)
 
 
-PAGE_CSS = """
- body{margin:0;background:#0b0f14;color:#e8eef6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
- .card{width:min(92vw,420px);background:#111823;border:1px solid #1e2a3a;border-radius:18px;padding:26px 22px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.5)}
- .shield{font-size:52px}
- h2{margin:12px 0 4px;font-size:22px}
- p{color:#9fb0c4;font-size:14px;margin:6px 0 16px}
- .bar{height:8px;background:#1b2534;border-radius:6px;overflow:hidden;margin:14px 0 18px}
- .bar>div{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#16a34a);transition:width .4s}
- ul{list-style:none;padding:0;margin:0 0 18px;text-align:left}
- li{font-size:14px;padding:7px 0;color:#8fa3b8}
- li.ok{color:#22c55e}
- .err{color:#ef4444;font-size:14px}
- .foot{margin-top:14px;font-size:12px;color:#5c6b7e}
-"""
+PAGE_CSS = (
+    "body{margin:0;background:#0b0f14;color:#e8eef6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;"
+    "display:flex;min-height:100vh;align-items:center;justify-content:center}"
+    ".card{width:min(92vw,420px);background:#111823;border:1px solid #1e2a3a;border-radius:18px;"
+    "padding:26px 22px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.5)}"
+    ".shield{font-size:52px}"
+    "h2{margin:12px 0 4px;font-size:22px}"
+    "p{color:#9fb0c4;font-size:14px;margin:6px 0 16px}"
+    ".bar{height:8px;background:#1b2534;border-radius:6px;overflow:hidden;margin:14px 0 18px}"
+    ".bar>div{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#16a34a);transition:width .4s}"
+    "ul{list-style:none;padding:0;margin:0 0 18px;text-align:left}"
+    "li{font-size:14px;padding:7px 0;color:#8fa3b8}"
+    "li.ok{color:#22c55e}"
+    ".err{color:#ef4444;font-size:14px}"
+    ".foot{margin-top:14px;font-size:12px;color:#5c6b7e}"
+)
 
 
 BLOCKED_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Verification</title><style>%s</style></head><body>
+<title>Verification</title><style>__CSS__</style></head><body>
 <div class="card">
  <div class="shield">\U0001f6ab</div>
  <h2>Open the link properly</h2>
  <p>This verification page must be opened from the <b>Verify Now</b> button in the bot.<br><br>
  Go back to Telegram, tap <b>🔓 Verify Now</b> and complete the steps.</p>
 </div></body></html>
-""" % PAGE_CSS
+""".replace("__CSS__", PAGE_CSS)
 
 
 EXPIRED_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Link Expired</title><style>%s</style></head><body>
+<title>Link Expired</title><style>__CSS__</style></head><body>
 <div class="card">
  <div class="shield">\U0001f480</div>
  <h2 style="color:#ef4444">Link Expired</h2>
  <p>This link has already been used and is no longer available.<br>
  Request a new link from the bot.</p>
 </div></body></html>
-""" % PAGE_CSS
+""".replace("__CSS__", PAGE_CSS)
 
 
 GATEWAY_PAGE = """<!doctype html>
@@ -111,7 +113,7 @@ GATEWAY_PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Security Check</title>
-<style>%s</style>
+<style>__CSS__</style>
 </head>
 <body>
 <div class="card">
@@ -135,7 +137,6 @@ GATEWAY_PAGE = """<!doctype html>
     var li = document.createElement("li");
     li.textContent = (pending ? "\u23f3 " : (ok ? "\u2705 " : "\u274c ")) + name;
     if (ok) { li.className = "ok"; }
-    li.dataset.name = name;
     list.appendChild(li);
     return li;
   }
@@ -193,7 +194,7 @@ GATEWAY_PAGE = """<!doctype html>
 </script>
 </body>
 </html>
-""" % PAGE_CSS
+""".replace("__CSS__", PAGE_CSS)
 
 
 @app.route("/r/<token>", methods=["GET"])
