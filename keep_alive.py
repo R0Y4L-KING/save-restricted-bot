@@ -5,13 +5,17 @@ Keep-alive HTTP server for Render / Heroku
 Also hosts the ad-gate "Security Check" gateway:
 
   GET /r/<token>      -> browser-check page (JS)      (alias: /v/<token>)
-  GET /r/<token>/go   -> marks gateway_passed and returns what to open next:
+                         Auto-runs the checks, then REDIRECTS on its own -
+                         no button to tap. A link can only be opened once;
+                         opening it again shows "Link Expired".
+  GET /r/<token>/go   -> marks gateway_passed + link_used and returns what
+                         to open next:
                            page_first (default) -> the AD (shortener) link
                            shortener / direct   -> the Telegram deep link
 
 Why page_first is the default: the bot hands out OUR OWN link
 (https://<host>/r/<token>), never the shortener link. Opening it runs the
-checks and then REDIRECTS to the ad, so the user never sees/copies the
+checks and then redirects to the ad, so the user never sees/copies the
 shortener URL and cannot feed it to a bypass bot.
 ========================================================
 """
@@ -37,8 +41,6 @@ REQUIRE_REFERER = os.environ.get("REQUIRE_REFERER", "True").lower() == "true"
 # page_first (default) | shortener | direct
 VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "page_first").strip().lower()
 
-# In these modes the page is opened straight from the bot, so a shortener
-# Referer cannot be expected.
 _NO_REFERER_MODES = ("direct", "page_first")
 
 _mongo_client = None
@@ -61,24 +63,46 @@ def health():
     return Response("OK", status=200)
 
 
+PAGE_CSS = """
+ body{margin:0;background:#0b0f14;color:#e8eef6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .card{width:min(92vw,420px);background:#111823;border:1px solid #1e2a3a;border-radius:18px;padding:26px 22px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+ .shield{font-size:52px}
+ h2{margin:12px 0 4px;font-size:22px}
+ p{color:#9fb0c4;font-size:14px;margin:6px 0 16px}
+ .bar{height:8px;background:#1b2534;border-radius:6px;overflow:hidden;margin:14px 0 18px}
+ .bar>div{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#16a34a);transition:width .4s}
+ ul{list-style:none;padding:0;margin:0 0 18px;text-align:left}
+ li{font-size:14px;padding:7px 0;color:#8fa3b8}
+ li.ok{color:#22c55e}
+ .err{color:#ef4444;font-size:14px}
+ .foot{margin-top:14px;font-size:12px;color:#5c6b7e}
+"""
+
+
 BLOCKED_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Verification</title>
-<style>
- body{margin:0;background:#0b0f14;color:#e8eef6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
- .card{width:min(92vw,420px);background:#111823;border:1px solid #2a1e1e;border-radius:18px;padding:26px 22px;text-align:center}
- h2{margin:10px 0 8px;font-size:20px}
- p{color:#9fb0c4;font-size:14px;line-height:1.5}
- .warn{font-size:46px}
-</style></head><body>
+<title>Verification</title><style>%s</style></head><body>
 <div class="card">
- <div class="warn">\U0001f6ab</div>
+ <div class="shield">\U0001f6ab</div>
  <h2>Open the link properly</h2>
  <p>This verification page must be opened from the <b>Verify Now</b> button in the bot.<br><br>
  Go back to Telegram, tap <b>🔓 Verify Now</b> and complete the steps.</p>
 </div></body></html>
-"""
+""" % PAGE_CSS
+
+
+EXPIRED_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link Expired</title><style>%s</style></head><body>
+<div class="card">
+ <div class="shield">\U0001f480</div>
+ <h2 style="color:#ef4444">Link Expired</h2>
+ <p>This link has already been used and is no longer available.<br>
+ Request a new link from the bot.</p>
+</div></body></html>
+""" % PAGE_CSS
 
 
 GATEWAY_PAGE = """<!doctype html>
@@ -87,22 +111,7 @@ GATEWAY_PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Security Check</title>
-<style>
-  body{margin:0;background:#0b0f14;color:#e8eef6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
-  .card{width:min(92vw,420px);background:#111823;border:1px solid #1e2a3a;border-radius:18px;padding:26px 22px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.5)}
-  .shield{font-size:52px}
-  h2{margin:12px 0 4px;font-size:22px}
-  p{color:#9fb0c4;font-size:14px;margin:6px 0 16px}
-  .bar{height:8px;background:#1b2534;border-radius:6px;overflow:hidden;margin:14px 0 18px}
-  .bar>div{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#16a34a);transition:width .4s}
-  ul{list-style:none;padding:0;margin:0 0 18px;text-align:left}
-  li{font-size:14px;padding:7px 0;color:#8fa3b8}
-  li.ok{color:#22c55e}
-  button{width:100%;padding:14px;border:0;border-radius:12px;background:#22c55e;color:#06210f;font-size:16px;font-weight:700;opacity:.45}
-  button:enabled{opacity:1;cursor:pointer}
-  .err{color:#ef4444;font-size:14px}
-  .foot{margin-top:14px;font-size:12px;color:#5c6b7e}
-</style>
+<style>%s</style>
 </head>
 <body>
 <div class="card">
@@ -111,7 +120,6 @@ GATEWAY_PAGE = """<!doctype html>
   <p id="status">Checking your browser…</p>
   <div class="bar"><div id="fill"></div></div>
   <ul id="list"></ul>
-  <button id="go" disabled>Continue</button>
   <div class="foot">Powered by ModAppsKing Security</div>
 </div>
 <script>
@@ -121,17 +129,17 @@ GATEWAY_PAGE = """<!doctype html>
   var list = document.getElementById("list");
   var fill = document.getElementById("fill");
   var status = document.getElementById("status");
-  var btn = document.getElementById("go");
   var done = 0;
 
-  function add(name, ok){
+  function add(name, ok, pending){
     var li = document.createElement("li");
-    li.textContent = (ok ? "\u2705 " : "\u274c ") + name;
+    li.textContent = (pending ? "\u23f3 " : (ok ? "\u2705 " : "\u274c ")) + name;
     if (ok) { li.className = "ok"; }
+    li.dataset.name = name;
     list.appendChild(li);
-    done++;
-    fill.style.width = Math.round(done / steps.length * 100) + "%";
+    return li;
   }
+  function tick(){ done++; fill.style.width = Math.round(done / steps.length * 100) + "%"; }
 
   function fingerprint(){
     try{
@@ -148,43 +156,44 @@ GATEWAY_PAGE = """<!doctype html>
   }
 
   var envOk = !!(window.navigator && window.navigator.userAgent) && typeof window.fetch === "function";
-  add(steps[0], envOk);
+  add(steps[0], envOk); tick();
 
   var wd = (navigator.webdriver === true)
         || /HeadlessChrome|PhantomJS|Selenium|puppeteer|playwright/i.test(navigator.userAgent)
         || (navigator.plugins && navigator.plugins.length === 0 && /Chrome/i.test(navigator.userAgent));
-  add(steps[1], !wd);
+  add(steps[1], !wd); tick();
 
-  add(steps[2], fingerprint());
+  add(steps[2], fingerprint()); tick();
 
-  var start = Date.now();
-  function armHuman(){
-    if (Date.now() - start < 1500) { setTimeout(armHuman, 300); return; }
-    add(steps[3], true);
-    status.textContent = "Verification passed! Tap Continue.";
-    btn.disabled = false;
-  }
-  setTimeout(armHuman, 1200);
+  // Human interaction: brief settle time, shown as pending then passed.
+  var humanLi = add(steps[3], false, true);
+  status.textContent = "Finalizing verification…";
+  setTimeout(function(){
+    humanLi.textContent = "\u2705 " + steps[3];
+    humanLi.className = "ok";
+    tick();
 
-  btn.addEventListener("click", function(){
-    btn.disabled = true;
-    status.textContent = "Verifying…";
+    if (!envOk || wd) {
+      status.innerHTML = '<span class="err">Verification failed. Please open the link from the bot again.</span>';
+      return;
+    }
+
+    // Auto-redirect - no button to tap.
     fetch("/r/" + encodeURIComponent(token) + "/go", {method: "POST"})
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (d && d.ok && d.url) { window.location.replace(d.url); }
-        else { status.innerHTML = '<span class="err">' + ((d && d.error) || "Verification failed. Please try again.") + "</span>"; btn.disabled = false; }
+        else { status.innerHTML = '<span class="err">' + ((d && d.error) || "Verification failed. Please try again.") + "</span>"; }
       })
       .catch(function(){
         status.innerHTML = '<span class="err">Network error. Please try again.</span>';
-        btn.disabled = false;
       });
-  });
+  }, 1800);
 })();
 </script>
 </body>
 </html>
-"""
+""" % PAGE_CSS
 
 
 @app.route("/r/<token>", methods=["GET"])
@@ -197,6 +206,21 @@ def gateway(token):
         if SHORTLINK_HOST not in referer:
             print(f"[gateway] BLOCKED token={token[:8]}... referer={referer!r}", flush=True)
             return Response(BLOCKED_PAGE, mimetype="text/html", status=403)
+
+    # One-time link: already used / expired -> show the expired page.
+    db = _db()
+    if db is not None:
+        try:
+            rec = db.verify_tokens.find_one({"_id": token})
+            if not rec or rec.get("used") or rec.get("link_used"):
+                print(f"[gateway] EXPIRED token={token[:8]}...", flush=True)
+                return Response(EXPIRED_PAGE, mimetype="text/html", status=410)
+            created = int(rec.get("created_ts", 0) or 0)
+            if created and (int(time.time()) - created) > TOKEN_TTL:
+                print(f"[gateway] EXPIRED (ttl) token={token[:8]}...", flush=True)
+                return Response(EXPIRED_PAGE, mimetype="text/html", status=410)
+        except Exception as e:
+            print(f"[gateway] db check failed: {e}", flush=True)
 
     print(f"[gateway] OK token={token[:8]}... mode={VERIFY_LINK_MODE} referer={referer!r}", flush=True)
     page = GATEWAY_PAGE.replace("__TOKEN__", html.escape(token, quote=True))
@@ -215,16 +239,19 @@ def gateway_go(token):
         rec = db.verify_tokens.find_one({"_id": token})
         if not rec:
             return jsonify(ok=False, error="This verification link is invalid.")
-        if rec.get("used"):
-            return jsonify(ok=False, error="This verification link was already used.")
+        if rec.get("used") or rec.get("link_used"):
+            return jsonify(ok=False, error="This link has already been used. Request a new one from the bot.")
         created = int(rec.get("created_ts", 0) or 0)
         if created and (int(time.time()) - created) > TOKEN_TTL:
             return jsonify(ok=False, error="This link has expired. Please request a new one.")
 
-        db.verify_tokens.update_one({"_id": token}, {"$set": {"gateway_passed": True}})
+        # Burn the link (one-time) and mark the gateway as passed.
+        db.verify_tokens.update_one(
+            {"_id": token},
+            {"$set": {"gateway_passed": True, "link_used": True, "link_used_ts": int(time.time())}}
+        )
 
         if VERIFY_LINK_MODE == "page_first":
-            # Send the user to the ad next; the ad comes back to the bot.
             ad_link = rec.get("ad_link")
             if not ad_link:
                 return jsonify(ok=False, error="Ad step is not ready. Please try again in a moment.")
