@@ -47,3 +47,15 @@ services:
         value: https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_banner.jpg
       - key: START_PHOTO_FALLBACK
         value: https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_fallback.jpg
+      # --- Ad / token verification (shortener) ---
+      - key: IS_VERIFY
+        value: "True"
+      - key: SHORTLINK_URL
+        value: vipshort.in
+      # SECRET: paste your shortener API key in the Render dashboard (do NOT commit it)
+      - key: SHORTLINK_API
+        sync: false
+      - key: VERIFY_EXPIRE
+        value: "21600"
+      - key: TUT_VID
+        value: https://t.me/ModAppsKing
