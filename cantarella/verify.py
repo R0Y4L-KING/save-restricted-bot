@@ -1,6 +1,6 @@
 # Ad / token verification gate (shortener + anti-bypass gateway)
 #
-# Flow:
+# Flow (VERIFY_LINK_MODE=shortener, default):
 #   1. Free user sends a content link.
 #   2. Bot creates a one-time token and shortens a link to OUR OWN gateway
 #      page: https://<PUBLIC_URL>/v/<token>
@@ -9,16 +9,22 @@
 #   4. Bot validates the token (one-time, user-bound, not expired AND
 #      gateway_passed) and resumes the original request.
 #
+# Flow (VERIFY_LINK_MODE=direct):
+#   Same, but the bot hands out the own-domain gateway link directly (like the
+#   Codeflix file-bot's /r/<hash> link) - no shortener, so no ad revenue.
+#
 # Anti-bypass:
-#   - The raw t.me deep link is NEVER placed in the shortener destination, so a
-#     shortener-bypass service that just follows redirects gets nothing useful.
+#   - The raw t.me deep link is NEVER placed in the shortener destination.
 #   - require_gateway tokens are rejected unless the gateway page set
 #     gateway_passed, so a hand-built /start verify_<token> link also fails.
+#   - In shortener mode the gateway page only loads when the browser arrives
+#     FROM the shortener (Referer check, see keep_alive.py).
 #   - One-time use + short TTL + bound to the requesting user id.
 #   - FAIL CLOSED: if the shortener produces no link we do not hand out a bypass.
 
 import html
 import json
+import os
 import secrets
 import time
 
@@ -38,6 +44,10 @@ logger = LOGGER(__name__)
 
 VERIFY_PREFIX = "verify_"
 GATEWAY_BASE = (PUBLIC_URL or "").rstrip("/")
+
+# "shortener" -> ad first, then the security page (earns money, default)
+# "direct"    -> hand out the own-domain security link directly (no ad)
+VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "shortener").strip().lower()
 
 # Some shorteners reject the default aiohttp/python User-Agent.
 USER_AGENT = (
@@ -209,7 +219,7 @@ def _admin_hint(detail: str) -> str:
 
 
 async def send_verify_prompt(client: Client, message: Message, target: str = None, count: int = None):
-    """Create a one-time token, shorten the gateway link and send the verify screen."""
+    """Create a one-time token, build the verify link and send the verify screen."""
     user_id = message.from_user.id
     token = secrets.token_urlsafe(16)
 
@@ -223,17 +233,18 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
 
     bot = await client.get_me()
     deep_link = f"https://t.me/{bot.username}?start={VERIFY_PREFIX}{token}"
-    if require_gateway:
-        destination = f"{GATEWAY_BASE}/v/{token}"
+    gateway_url = f"{GATEWAY_BASE}/v/{token}" if require_gateway else None
+
+    if gateway_url and VERIFY_LINK_MODE == "direct":
+        # File-bot style: hand out the own-domain security link directly.
+        verify_link, detail = gateway_url, "direct gateway link (no ad)"
     else:
-        # No public URL configured -> cannot host the gateway. Log loudly; the
-        # owner should set PUBLIC_URL / RENDER_EXTERNAL_URL.
-        logger.warning("PUBLIC_URL not set - gateway disabled, using direct deep link.")
-        destination = deep_link
+        destination = gateway_url or deep_link
+        if not require_gateway:
+            logger.warning("PUBLIC_URL not set - gateway disabled, using direct deep link.")
+        verify_link, detail = await shorten_url_verbose(destination)
 
-    short_link, detail = await shorten_url_verbose(destination)
-
-    if not short_link:
+    if not verify_link:
         # FAIL CLOSED. Handing out the raw deep link here would let a user
         # verify without watching the ad, so we refuse instead.
         logger.error(f"Verification blocked: {detail}")
@@ -253,6 +264,7 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
                 "\n\n<b>🔧 Admin diagnostic</b>\n"
                 f"<b>Endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
                 f"<b>Gateway:</b> <code>{html.escape(GATEWAY_BASE or 'NOT SET')}</code>\n"
+                f"<b>Mode:</b> <code>{html.escape(VERIFY_LINK_MODE)}</code>\n"
                 f"<b>Reason:</b> <code>{html.escape(detail)}</code>\n"
                 f"<i>{html.escape(_admin_hint(detail))}</i>"
             )
@@ -268,7 +280,7 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
         return
 
     caption = VERIFY_TEXT.format(duration=_duration_text(VERIFY_EXPIRE))
-    markup = InlineKeyboardMarkup(_verify_buttons(short_link))
+    markup = InlineKeyboardMarkup(_verify_buttons(verify_link))
 
     try:
         await message.reply_photo(
@@ -342,6 +354,7 @@ async def shorttest(client: Client, message: Message):
         await message.reply(
             f"<b>❌ Shortener call failed</b>\n\n"
             f"<b>Endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
+            f"<b>Mode:</b> <code>{html.escape(VERIFY_LINK_MODE)}</code>\n"
             f"<b>Reason:</b> <code>{html.escape(err)}</code>\n\n"
             f"<i>{html.escape(_admin_hint('call failed: ' + err))}</i>",
             parse_mode=enums.ParseMode.HTML
@@ -353,6 +366,7 @@ async def shorttest(client: Client, message: Message):
     await message.reply(
         f"<b>Shortener endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
         f"<b>Gateway:</b> <code>{html.escape(GATEWAY_BASE or 'NOT SET')}</code>\n"
+        f"<b>Mode:</b> <code>{html.escape(VERIFY_LINK_MODE)}</code>\n"
         f"<b>Result:</b> {verdict}\n\n"
         f"<b>Raw response:</b>\n<code>{html.escape(str(body)[:900])}</code>",
         parse_mode=enums.ParseMode.HTML

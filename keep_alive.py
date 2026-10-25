@@ -12,9 +12,11 @@ Why: the shortener points at /v/<token> instead of the raw Telegram
 deep link. A shortener-bypass service that only follows redirects gets
 the check page and NOT the deep link.
 
-Extra anti-bypass layer: the check page itself only loads when the
-browser arrives FROM the shortener (Referer header). A bypassed link
-opened directly carries no shortener referer and is refused.
+Extra anti-bypass layer: in shortener mode the check page itself only
+loads when the browser arrives FROM the shortener (Referer header).
+A bypassed link opened directly carries no shortener referer and is
+refused. In direct mode (VERIFY_LINK_MODE=direct) the page is meant to
+be opened straight from Telegram, so the referer check is skipped.
 ========================================================
 """
 
@@ -38,6 +40,10 @@ SHORTLINK_HOST = SHORTLINK_URL.replace("https://", "").replace("http://", "").st
 # Require the browser to arrive from the shortener. Set REQUIRE_REFERER=False
 # if a legitimate flow ever gets blocked (see the logs).
 REQUIRE_REFERER = os.environ.get("REQUIRE_REFERER", "True").lower() == "true"
+
+# shortener -> ad first, then the page (referer check applies)
+# direct    -> page handed out straight from the bot (referer check skipped)
+VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "shortener").strip().lower()
 
 _mongo_client = None
 
@@ -189,7 +195,7 @@ GATEWAY_PAGE = """<!doctype html>
 def gateway(token):
     referer = (request.headers.get("Referer") or "").lower()
 
-    if REQUIRE_REFERER and SHORTLINK_HOST:
+    if REQUIRE_REFERER and SHORTLINK_HOST and VERIFY_LINK_MODE != "direct":
         if SHORTLINK_HOST not in referer:
             # No shortener referer -> this link was opened directly (bypassed).
             print(f"[gateway] BLOCKED token={token[:8]}... referer={referer!r}", flush=True)
