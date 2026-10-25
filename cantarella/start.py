@@ -153,6 +153,14 @@ def TimeFormatter(milliseconds: int) -> str:
     return tmp[:-2] if tmp else "0s"
 class batch_temp(object):
     IS_BATCH = {}
+
+
+# --- Interactive /batch flow ---
+BATCH_STATE = {}
+MAX_BATCH_MESSAGES = 100
+MAX_BATCH_TRIES = 2
+
+
 def get_message_type(msg):
     if getattr(msg, 'document', None): return "Document"
     if getattr(msg, 'video', None): return "Video"
@@ -297,6 +305,7 @@ async def send_plan(client: Client, message: Message):
 @Client.on_message(filters.command(["cancel"]))
 async def send_cancel(client: Client, message: Message):
     batch_temp.IS_BATCH[message.from_user.id] = True
+    BATCH_STATE.pop(message.from_user.id, None)
     await message.reply_text("❌ Batch Process Cancelled Successfully.")
 async def settings_panel(client, callback_query):
     """
@@ -324,29 +333,93 @@ async def settings_panel(client, callback_query):
     )
 @Client.on_message(filters.text & filters.private & ~filters.regex("^/"))
 async def save(client: Client, message: Message):
+    # Ignore while the interactive /batch flow is collecting input
+    if message.from_user.id in BATCH_STATE:
+        return
     if "https://t.me/" in message.text:
         await process_save_link(client, message, message.text)
 
 
 @Client.on_message(filters.command("batch") & filters.private)
 async def batch_command(client: Client, message: Message):
+    user_id = message.from_user.id
     parts = message.text.split(maxsplit=1)
-    if len(parts) > 1 and "https://t.me/" in parts[1]:
-        await process_save_link(client, message, parts[1].strip())
+    link = parts[1].strip() if len(parts) > 1 and "https://t.me/" in parts[1] else None
+
+    if link:
+        BATCH_STATE[user_id] = {"step": "WAITING_COUNT", "link": link, "tries": 0}
+        await message.reply(
+            "<b>🔢 HOW MANY MESSAGES DO YOU WANT TO PROCESS?</b>\n\n"
+            f"<blockquote>MAX LIMIT {MAX_BATCH_MESSAGES}</blockquote>",
+            parse_mode=enums.ParseMode.HTML
+        )
+    else:
+        BATCH_STATE[user_id] = {"step": "WAITING_LINK", "link": None, "tries": 0}
+        await message.reply(
+            "<b>📥 PLEASE SEND THE START LINK.</b>\n\n"
+            f"<blockquote>Maximum tries {MAX_BATCH_TRIES}</blockquote>",
+            parse_mode=enums.ParseMode.HTML
+        )
+
+
+@Client.on_message(filters.private & filters.text & ~filters.regex("^/"))
+async def batch_handler(client: Client, message: Message):
+    user_id = message.from_user.id
+    state = BATCH_STATE.get(user_id)
+    if not state:
         return
-    await message.reply(
-        "<b>📦 Batch Mode</b>\n\n"
-        "Send me a message link with a <b>range</b> and I'll save every file in it.\n\n"
-        "<b>Format:</b> <code>https://t.me/channel/100-110</code>\n\n"
-        "<blockquote>• Saves messages with ID 100 to 110.\n"
-        "• Works for public channels, and for private ones after /login.\n"
-        "• Use /cancel to stop in the middle.</blockquote>\n\n"
-        "<i>You can also send it directly:</i> <code>/batch https://t.me/channel/100-110</code>",
-        parse_mode=enums.ParseMode.HTML
-    )
+    text = (message.text or "").strip()
+
+    if state["step"] == "WAITING_LINK":
+        if "https://t.me/" in text:
+            state["link"] = text
+            state["step"] = "WAITING_COUNT"
+            state["tries"] = 0
+            await message.reply(
+                "<b>🔢 HOW MANY MESSAGES DO YOU WANT TO PROCESS?</b>\n\n"
+                f"<blockquote>MAX LIMIT {MAX_BATCH_MESSAGES}</blockquote>",
+                parse_mode=enums.ParseMode.HTML
+            )
+        else:
+            state["tries"] += 1
+            if state["tries"] >= MAX_BATCH_TRIES:
+                BATCH_STATE.pop(user_id, None)
+                await message.reply(
+                    "<b>❌ Batch cancelled — that wasn't a valid Telegram link.</b>",
+                    parse_mode=enums.ParseMode.HTML
+                )
+            else:
+                await message.reply(
+                    "<b>❌ INVALID LINK. PLEASE SEND A VALID TELEGRAM LINK.</b>\n\n"
+                    f"<blockquote>Maximum tries {MAX_BATCH_TRIES - state['tries']} left</blockquote>",
+                    parse_mode=enums.ParseMode.HTML
+                )
+        return
+
+    if state["step"] == "WAITING_COUNT":
+        if text.isdigit() and 1 <= int(text) <= MAX_BATCH_MESSAGES:
+            count = int(text)
+            link = state["link"]
+            BATCH_STATE.pop(user_id, None)
+            await process_save_link(client, message, link, count)
+        else:
+            state["tries"] += 1
+            if state["tries"] >= MAX_BATCH_TRIES:
+                BATCH_STATE.pop(user_id, None)
+                await message.reply(
+                    "<b>❌ Batch cancelled — no valid number was given.</b>",
+                    parse_mode=enums.ParseMode.HTML
+                )
+            else:
+                await message.reply(
+                    f"<b>❌ INVALID NUMBER. PLEASE ENTER A NUMBER BETWEEN 1 AND {MAX_BATCH_MESSAGES}.</b>\n\n"
+                    f"<blockquote>Maximum tries {MAX_BATCH_TRIES - state['tries']} left</blockquote>",
+                    parse_mode=enums.ParseMode.HTML
+                )
+        return
 
 
-async def process_save_link(client: Client, message: Message, text: str):
+async def process_save_link(client: Client, message: Message, text: str, count: int = None):
     if "https://t.me/" in text:
        
         is_limit_reached = await db.check_limit(message.from_user.id)
@@ -364,9 +437,14 @@ async def process_save_link(client: Client, message: Message, text: str):
         datas = text.split("/")
         temp = datas[-1].replace("?single", "").split("-")
         fromID = int(temp[0].strip())
-        try:
-            toID = int(temp[1].strip())
-        except:
+        if len(temp) > 1:
+            try:
+                toID = int(temp[1].strip())
+            except:
+                toID = fromID
+        elif count:
+            toID = fromID + int(count) - 1
+        else:
             toID = fromID
         batch_temp.IS_BATCH[message.from_user.id] = False
         is_private_link = "https://t.me/c/" in text
@@ -424,7 +502,15 @@ async def process_save_link(client: Client, message: Message, text: str):
                 username = datas[3]
                 await handle_restricted_content(client, acc, message, username, msgid)
             await asyncio.sleep(2)
+        cancelled = batch_temp.IS_BATCH.get(message.from_user.id)
         batch_temp.IS_BATCH[message.from_user.id] = True
+        total = toID - fromID + 1
+        if total > 1 and not cancelled:
+            await message.reply(
+                f"<b>✅ Batch completed successfully for {total} messages 🎉</b>\n\n"
+                "<i>Powered by @ModAppsKing</i>",
+                parse_mode=enums.ParseMode.HTML
+            )
 async def handle_restricted_content(client: Client, acc, message: Message, chat_target, msgid):
     try:
         msg: Message = await acc.get_messages(chat_target, msgid)
