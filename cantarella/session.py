@@ -84,7 +84,8 @@ async def logout(client: Client, message: Message):
     await message.reply(
         "<b>🚪 Logout Successful! 👋</b>\n\n"
         "<i>Your session has been cleared. You can log in again anytime! 🔄</i>",
-        parse_mode=enums.ParseMode.HTML
+        parse_mode=enums.ParseMode.HTML,
+        reply_markup=remove_keyboard
     )
 
 @Client.on_message(filters.private & filters.command(["cancel", "cancellogin"]))
@@ -107,7 +108,11 @@ async def cancel_login(client: Client, message: Message):
             reply_markup=remove_keyboard
         )
     else:
-        pass
+        await message.reply(
+            "<b>✅ Done! Any stuck menu button has been cleared.</b>",
+            parse_mode=enums.ParseMode.HTML,
+            reply_markup=remove_keyboard
+        )
 
 async def check_login_state(_, __, message):
     return message.from_user.id in LOGIN_STATE
@@ -174,19 +179,29 @@ async def login_handler(bot: Client, message: Message):
             )
            
         except PhoneNumberInvalid:
-            await status_msg.edit(
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await message.reply(
                 "<b>❌ Oops! Invalid phone number format. 😅</b>\n\n"
                 f"<i>Progress: {progress}</i>\n\n"
                 "Please try again (e.g., +919876543210).",
-                parse_mode=enums.ParseMode.HTML
+                parse_mode=enums.ParseMode.HTML,
+                reply_markup=remove_keyboard
             )
             await temp_client.disconnect()
             del LOGIN_STATE[user_id]
         except Exception as e:
-            await status_msg.edit(
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await message.reply(
                 f"<b>❌ Something went wrong: {e} 🤔</b>\n\n"
                 f"<i>Progress: {progress}</i>\n\nPlease try /login again.",
-                parse_mode=enums.ParseMode.HTML
+                parse_mode=enums.ParseMode.HTML,
+                reply_markup=remove_keyboard
             )
             await temp_client.disconnect()
             del LOGIN_STATE[user_id]
@@ -219,10 +234,15 @@ async def login_handler(bot: Client, message: Message):
             )
         except PhoneCodeExpired:
             animation_task.cancel()
-            await status_msg.edit(
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await message.reply(
                 "<b>⏰ Code has expired. ⏳</b>\n\n"
                 f"<i>Progress: {progress}</i>\n\nPlease start over with /login.",
-                parse_mode=enums.ParseMode.HTML
+                parse_mode=enums.ParseMode.HTML,
+                reply_markup=remove_keyboard
             )
             await temp_client.disconnect()
             del LOGIN_STATE[user_id]
@@ -240,9 +260,14 @@ async def login_handler(bot: Client, message: Message):
             )
         except Exception as e:
             animation_task.cancel()
-            await status_msg.edit(
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await message.reply(
                 f"<b>❌ Something went wrong: {e} 🤔</b>\n\n<i>Progress: {progress}</i>",
-                parse_mode=enums.ParseMode.HTML
+                parse_mode=enums.ParseMode.HTML,
+                reply_markup=remove_keyboard
             )
             await temp_client.disconnect()
             del LOGIN_STATE[user_id]
@@ -271,9 +296,14 @@ async def login_handler(bot: Client, message: Message):
             )
         except Exception as e:
             animation_task.cancel()
-            await status_msg.edit(
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await message.reply(
                 f"<b>❌ Something went wrong: {e} 🤔</b>\n\n<i>Progress: {progress}</i>",
-                parse_mode=enums.ParseMode.HTML
+                parse_mode=enums.ParseMode.HTML,
+                reply_markup=remove_keyboard
             )
             await temp_client.disconnect()
             del LOGIN_STATE[user_id]
@@ -288,7 +318,7 @@ async def finalize_login(status_msg: Message, temp_client, user_id):
         if user_id in LOGIN_STATE:
             del LOGIN_STATE[user_id]
            
-        await status_msg.edit(
+        await status_msg.reply(
             "<b>🎉 Login Successful! 🌟</b>\n\n"
             "<i>Progress: ✅ Phone Number → ✅ Code → ✅ Password</i>\n\n"
             "<i>Your session has been saved securely. 🔒</i>\n\n"
@@ -296,11 +326,19 @@ async def finalize_login(status_msg: Message, temp_client, user_id):
             parse_mode=enums.ParseMode.HTML,
             reply_markup=remove_keyboard
         )
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
     except Exception as e:
-        await status_msg.edit(
+        await status_msg.reply(
             f"<b>❌ Failed to save session: {e} 😔</b>\n\nPlease try /login again.",
             parse_mode=enums.ParseMode.HTML,
             reply_markup=remove_keyboard
         )
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
         if user_id in LOGIN_STATE:
             del LOGIN_STATE[user_id]
