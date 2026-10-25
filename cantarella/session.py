@@ -184,8 +184,10 @@ async def login_handler(bot: Client, message: Message):
                 f"<b>📩 OTP Sent to your app! 📲</b>\n\n"
                 f"<i>Progress: {progress}</i>\n\n"
                 "Please open your Telegram app and copy the verification code.\n\n"
-                "<b>Send it like this:</b> <code>12 345</code> or <code>1 2 3 4 5 6</code>\n\n"
-                "<blockquote>Adding spaces helps prevent Telegram from deleting the message automatically. 💡</blockquote>",
+                "<b>Send it here — with or without spaces, both work:</b>\n"
+                "<code>12345</code> or <code>1 2 3 4 5</code>\n\n"
+                "<blockquote>💡 Enter it within 2-3 minutes, and don't run /login again — "
+                "a new code makes the old one invalid.</blockquote>",
                 parse_mode=enums.ParseMode.HTML
             )
            
@@ -260,7 +262,7 @@ async def login_handler(bot: Client, message: Message):
                     "<b>⏰ That code expired.</b>\n\n"
                     f"<i>Progress: {progress}</i>\n\n"
                     "📩 A <b>fresh code</b> has just been sent to your Telegram app.\n\n"
-                    "Please send the <b>new</b> code (spaces are fine, e.g. <code>1 2 3 4 5</code>).",
+                    "Please send the <b>new</b> code (with or without spaces — both work).",
                     parse_mode=enums.ParseMode.HTML
                 )
             except Exception as e:
