@@ -78,3 +78,12 @@ VERIFY_PIC = os.environ.get(
     "VERIFY_PIC",
     "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_banner.jpg"
 )
+
+# Public base URL of this service, used to build the anti-bypass gateway page
+# (https://<PUBLIC_URL>/v/<token>). On Render this is set automatically via
+# RENDER_EXTERNAL_URL. Set PUBLIC_URL manually on other hosts.
+PUBLIC_URL = (
+    os.environ.get("PUBLIC_URL")
+    or os.environ.get("RENDER_EXTERNAL_URL")
+    or ""
+).rstrip("/")
