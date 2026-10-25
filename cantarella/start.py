@@ -24,6 +24,7 @@ FREE_LIMIT_SIZE = 2 * 1024 * 1024 * 1024
 FREE_LIMIT_DAILY = 10
 UPI_ID = os.environ.get("UPI_ID", "20213904@axl")
 QR_CODE = os.environ.get("QR_CODE", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png")
+PAY_URL = os.environ.get("PAY_URL", "https://r0y4l-king.github.io/upi-pay/")
 START_PHOTO = os.environ.get("START_PHOTO", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_banner.jpg")
 START_PHOTO_FALLBACK = os.environ.get("START_PHOTO_FALLBACK", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_fallback.jpg")
 REACTIONS = [
@@ -281,6 +282,7 @@ async def send_help(client: Client, message: Message):
 @Client.on_message(filters.command(["plan", "myplan", "premium"]))
 async def send_plan(client: Client, message: Message):
     buttons = [
+        [InlineKeyboardButton("💳 Pay Now (UPI)", url=PAY_URL)],
         [InlineKeyboardButton("📸 Send Payment Proof", url="https://t.me/SANATANI_B0Y")],
         [InlineKeyboardButton("❌ Close Menu", callback_data="close_btn")]
     ]
@@ -521,6 +523,7 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
         await settings_panel(client, callback_query)
     elif data == "buy_premium":
         buttons = [
+            [InlineKeyboardButton("💳 Pay Now (UPI)", url=PAY_URL)],
             [InlineKeyboardButton("📸 Send Payment Proof", url="https://t.me/SANATANI_B0Y")],
             [InlineKeyboardButton("⬅️ Back to Home", callback_data="start_btn")]
         ]

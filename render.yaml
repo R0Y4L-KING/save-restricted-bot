@@ -40,6 +40,8 @@ services:
         value: 20213904@axl
       - key: QR_CODE
         value: https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png
+      - key: PAY_URL
+        value: https://r0y4l-king.github.io/upi-pay/
       # --- Start screen photos ---
       - key: START_PHOTO
         value: https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_banner.jpg
