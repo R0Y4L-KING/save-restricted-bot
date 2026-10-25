@@ -8,10 +8,13 @@ Also hosts the ad-gate "Security Check" gateway:
   GET /v/<token>/go   -> validates the token, flags gateway_passed
                          and only then returns the bot deep link
 
-Why: the shortener now points at /v/<token> instead of the raw
-Telegram deep link. A shortener-bypass service that only follows
-redirects gets the check page and NOT the deep link, so it cannot
-verify without actually passing the browser checks.
+Why: the shortener points at /v/<token> instead of the raw Telegram
+deep link. A shortener-bypass service that only follows redirects gets
+the check page and NOT the deep link.
+
+Extra anti-bypass layer: the check page itself only loads when the
+browser arrives FROM the shortener (Referer header). A bypassed link
+opened directly carries no shortener referer and is refused.
 ========================================================
 """
 
@@ -20,13 +23,21 @@ import os
 import threading
 import time
 
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, jsonify, request
 
 app = Flask(__name__)
 
 # Set by bot.py at startup (keep_alive.BOT_USERNAME = me.username)
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 TOKEN_TTL = int(os.environ.get("VERIFY_TOKEN_TTL", "600"))
+
+# Host of the shortener, used for the Referer check (e.g. "vipshort.in")
+SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "vipshort.in")
+SHORTLINK_HOST = SHORTLINK_URL.replace("https://", "").replace("http://", "").strip("/").split("/")[0].lower()
+
+# Require the browser to arrive from the shortener. Set REQUIRE_REFERER=False
+# if a legitimate flow ever gets blocked (see the logs).
+REQUIRE_REFERER = os.environ.get("REQUIRE_REFERER", "True").lower() == "true"
 
 _mongo_client = None
 
@@ -46,6 +57,26 @@ def _db():
 @app.route("/", methods=["GET"])
 def health():
     return Response("OK", status=200)
+
+
+BLOCKED_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verification</title>
+<style>
+ body{margin:0;background:#0b0f14;color:#e8eef6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .card{width:min(92vw,420px);background:#111823;border:1px solid #2a1e1e;border-radius:18px;padding:26px 22px;text-align:center}
+ h2{margin:10px 0 8px;font-size:20px}
+ p{color:#9fb0c4;font-size:14px;line-height:1.5}
+ .warn{font-size:46px}
+</style></head><body>
+<div class="card">
+ <div class="warn">\U0001f6ab</div>
+ <h2>Open the link properly</h2>
+ <p>This verification page must be opened from the <b>Verify Now</b> button in the bot.<br><br>
+ Go back to Telegram, tap <b>🔓 Verify Now</b> and complete the steps.</p>
+</div></body></html>
+"""
 
 
 GATEWAY_PAGE = """<!doctype html>
@@ -156,6 +187,15 @@ GATEWAY_PAGE = """<!doctype html>
 
 @app.route("/v/<token>", methods=["GET"])
 def gateway(token):
+    referer = (request.headers.get("Referer") or "").lower()
+
+    if REQUIRE_REFERER and SHORTLINK_HOST:
+        if SHORTLINK_HOST not in referer:
+            # No shortener referer -> this link was opened directly (bypassed).
+            print(f"[gateway] BLOCKED token={token[:8]}... referer={referer!r}", flush=True)
+            return Response(BLOCKED_PAGE, mimetype="text/html", status=403)
+
+    print(f"[gateway] OK token={token[:8]}... referer={referer!r}", flush=True)
     page = GATEWAY_PAGE.replace("__TOKEN__", html.escape(token, quote=True))
     return Response(page, mimetype="text/html")
 
