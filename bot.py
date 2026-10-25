@@ -31,6 +31,24 @@ LOGO = r"""
     𝙱𝙾𝚃 𝚆𝙾𝚁𝙺𝙸𝙽𝙶 𝙿𝚁𝙾𝙿𝙴𝚁𝙻𝚈....
 """
 
+
+async def ad_gate_status():
+    """Short human-readable status of the ad/verification gate (for the startup log)."""
+    try:
+        from config import IS_VERIFY, SHORTLINK_API, SHORTLINK_URL
+        if not IS_VERIFY:
+            return "off (IS_VERIFY=False)"
+        if not SHORTLINK_API:
+            return "❌ SHORTLINK_API NOT SET - free users will be blocked"
+        from cantarella.verify import shorten_url
+        test = await shorten_url("https://t.me/ModAppsKing")
+        if test:
+            return f"✅ working ({SHORTLINK_URL})"
+        return "❌ shortener returned no link - run /shorttest"
+    except Exception as e:
+        return f"❌ check failed: {e}"
+
+
 class Bot(Client):
     def __init__(self):
         super().__init__(
@@ -86,13 +104,19 @@ class Bot(Client):
             logger.error(f"DB stats failed: {e}")
             user_count = "Unknown"
 
-        # 4. Startup notification
+        # 4. Ad-gate / shortener diagnostic
+        gate_status = await ad_gate_status()
+        logger.info(f"Ad gate: {gate_status}")
+
+        # 5. Startup notification
         now = datetime.datetime.now(IST)
         startup_text = (
             f"<b><i>🤖 Bot Successfully Started ♻️</i></b>\n\n"
             f"<b>Bot:</b> @{me.username}\n"
             f"<b>Users:</b> <code>{user_count} / 200</code>\n"
-            f"<b>Time:</b> <code>{now.strftime('%I:%M %p')} IST</code>\n\n"
+            f"<b>Time:</b> <code>{now.strftime('%I:%M %p')} IST</code>\n"
+            f"<b>Ad-gate:</b> {gate_status}\n"
+            f"<b>Admins:</b> <code>{len(ADMINS)}</code> configured\n\n"
             f"<b>Developer by @ModAppsKing</b>"
         )
 
