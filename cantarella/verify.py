@@ -1,18 +1,21 @@
-# Ad / token verification gate (shortener based)
+# Ad / token verification gate (shortener + anti-bypass gateway)
 #
 # Flow:
 #   1. Free user sends a content link.
-#   2. Bot creates a one-time token, builds t.me/<bot>?start=verify_<token>,
-#      shortens it through the ad shortener (vipshort) and shows a Verify button.
-#   3. User completes the shortener -> is redirected back to the bot with the token.
-#   4. Bot validates the token (one-time, user-bound, not expired), grants access
-#      for VERIFY_EXPIRE seconds and resumes the original request.
+#   2. Bot creates a one-time token and shortens a link to OUR OWN gateway
+#      page: https://<PUBLIC_URL>/v/<token>
+#   3. User opens the shortener (sees the ad) -> lands on the gateway page,
+#      which runs browser checks and only then releases the Telegram deep link.
+#   4. Bot validates the token (one-time, user-bound, not expired AND
+#      gateway_passed) and resumes the original request.
 #
-# Security notes:
-#   - Tokens are 128-bit random (secrets.token_urlsafe), so they cannot be guessed.
+# Anti-bypass:
+#   - The raw t.me deep link is NEVER placed in the shortener destination, so a
+#     shortener-bypass service that just follows redirects gets nothing useful.
+#   - require_gateway tokens are rejected unless the gateway page set
+#     gateway_passed, so a hand-built /start verify_<token> link also fails.
 #   - One-time use + short TTL + bound to the requesting user id.
-#   - FAIL CLOSED: if the shortener cannot produce a link we do NOT hand out the
-#     raw deep link, otherwise users could verify without watching the ad.
+#   - FAIL CLOSED: if the shortener produces no link we do not hand out a bypass.
 
 import html
 import json
@@ -26,6 +29,7 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from config import (
     IS_VERIFY, SHORTLINK_URL, SHORTLINK_API, SHORTLINK_ALIAS,
     VERIFY_EXPIRE, VERIFY_TOKEN_TTL, TUT_VID, VERIFY_PIC, ADMINS, LOG_CHANNEL,
+    PUBLIC_URL,
 )
 from database.db import db
 from logger import LOGGER
@@ -33,6 +37,7 @@ from logger import LOGGER
 logger = LOGGER(__name__)
 
 VERIFY_PREFIX = "verify_"
+GATEWAY_BASE = (PUBLIC_URL or "").rstrip("/")
 
 # Some shorteners reject the default aiohttp/python User-Agent.
 USER_AGENT = (
@@ -204,18 +209,29 @@ def _admin_hint(detail: str) -> str:
 
 
 async def send_verify_prompt(client: Client, message: Message, target: str = None, count: int = None):
-    """Create a one-time token, shorten the deep link and send the verify screen."""
+    """Create a one-time token, shorten the gateway link and send the verify screen."""
     user_id = message.from_user.id
     token = secrets.token_urlsafe(16)
 
+    # When PUBLIC_URL is known we route through our own anti-bypass gateway.
+    require_gateway = bool(GATEWAY_BASE)
+
     try:
-        await db.create_verify_token(token, user_id, target, count)
+        await db.create_verify_token(token, user_id, target, count, require_gateway)
     except Exception as e:
         logger.error(f"Failed to store verify token: {e}")
 
     bot = await client.get_me()
     deep_link = f"https://t.me/{bot.username}?start={VERIFY_PREFIX}{token}"
-    short_link, detail = await shorten_url_verbose(deep_link)
+    if require_gateway:
+        destination = f"{GATEWAY_BASE}/v/{token}"
+    else:
+        # No public URL configured -> cannot host the gateway. Log loudly; the
+        # owner should set PUBLIC_URL / RENDER_EXTERNAL_URL.
+        logger.warning("PUBLIC_URL not set - gateway disabled, using direct deep link.")
+        destination = deep_link
+
+    short_link, detail = await shorten_url_verbose(destination)
 
     if not short_link:
         # FAIL CLOSED. Handing out the raw deep link here would let a user
@@ -236,6 +252,7 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
             user_text += (
                 "\n\n<b>🔧 Admin diagnostic</b>\n"
                 f"<b>Endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
+                f"<b>Gateway:</b> <code>{html.escape(GATEWAY_BASE or 'NOT SET')}</code>\n"
                 f"<b>Reason:</b> <code>{html.escape(detail)}</code>\n"
                 f"<i>{html.escape(_admin_hint(detail))}</i>"
             )
@@ -266,7 +283,7 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
 
 
 async def handle_verify(client: Client, message: Message):
-    """Handle the /start verify_<token> redirect coming back from the shortener."""
+    """Handle the /start verify_<token> redirect coming back from the gateway."""
     payload = message.command[1] if len(message.command) > 1 else ""
     token = payload[len(VERIFY_PREFIX):] if payload.startswith(VERIFY_PREFIX) else payload
     user_id = message.from_user.id
@@ -278,7 +295,8 @@ async def handle_verify(client: Client, message: Message):
     if not rec:
         await message.reply(
             "<b>❌ This verification link is invalid, already used, or expired.</b>\n\n"
-            "<i>Send the link you want to save again to get a fresh verification link.</i>",
+            "<i>Tip: verification must be completed on the official security page — "
+            "send the link you want to save again to get a fresh one.</i>",
             parse_mode=enums.ParseMode.HTML
         )
         return
@@ -334,6 +352,7 @@ async def shorttest(client: Client, message: Message):
     verdict = "✅ parsed OK" if link else "❌ parser did NOT find a link"
     await message.reply(
         f"<b>Shortener endpoint:</b> <code>{html.escape(_api_endpoint())}</code>\n"
+        f"<b>Gateway:</b> <code>{html.escape(GATEWAY_BASE or 'NOT SET')}</code>\n"
         f"<b>Result:</b> {verdict}\n\n"
         f"<b>Raw response:</b>\n<code>{html.escape(str(body)[:900])}</code>",
         parse_mode=enums.ParseMode.HTML

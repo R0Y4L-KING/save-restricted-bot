@@ -13,8 +13,10 @@ from logger import LOGGER
 # Keep-alive server (Render / Heroku)
 try:
     from keep_alive import keep_alive
+    import keep_alive as keep_alive_module
 except ImportError:
     keep_alive = None
+    keep_alive_module = None
 
 logger = LOGGER(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -35,11 +37,13 @@ LOGO = r"""
 async def ad_gate_status():
     """Short human-readable status of the ad/verification gate (for the startup log)."""
     try:
-        from config import IS_VERIFY, SHORTLINK_API, SHORTLINK_URL
+        from config import IS_VERIFY, SHORTLINK_API, SHORTLINK_URL, PUBLIC_URL
         if not IS_VERIFY:
             return "off (IS_VERIFY=False)"
         if not SHORTLINK_API:
             return "❌ SHORTLINK_API NOT SET - free users will be blocked"
+        if not PUBLIC_URL:
+            return "❌ PUBLIC_URL not set - anti-bypass gateway disabled"
         from cantarella.verify import shorten_url
         test = await shorten_url("https://t.me/ModAppsKing")
         if test:
@@ -95,6 +99,14 @@ class Bot(Client):
                 await asyncio.sleep(15)
 
         me = await self.get_me()
+
+        # Hand the bot username to the anti-bypass gateway (keep_alive.py)
+        if keep_alive_module is not None:
+            try:
+                keep_alive_module.BOT_USERNAME = me.username
+                logger.info(f"Gateway bot username set: {me.username}")
+            except Exception as e:
+                logger.warning(f"Could not set gateway bot username: {e}")
 
         # 3. DB Stats
         try:
