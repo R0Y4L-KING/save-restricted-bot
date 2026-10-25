@@ -78,10 +78,26 @@ class Database:
         await self.col.update_one({'id': int(id)}, {'$set': {'is_premium': False, 'premium_expiry': None}})
         logger.info(f"User {id} removed from premium")
     async def check_premium(self, id):
+        """
+        Returns a truthy value if the user IS premium right now, else None.
+        - premium_expiry empty/None  -> permanent premium  -> "permanent"
+        - premium_expiry in the past -> expired            -> None
+        - premium_expiry in future   -> active             -> the expiry string
+        """
         user = await self.col.find_one({'id': int(id)})
-        if user and user.get('is_premium'):
-            return user.get('premium_expiry')
-        return None
+        if not user or not user.get('is_premium'):
+            return None
+        expiry = user.get('premium_expiry')
+        if not expiry:
+            return "permanent"
+        try:
+            exp_date = datetime.date.fromisoformat(str(expiry)[:10])
+        except Exception:
+            # Unparsable value - treat as active rather than locking the user out.
+            return str(expiry)
+        if exp_date < datetime.date.today():
+            return None
+        return str(expiry)
     async def get_premium_users(self):
         return self.col.find({'is_premium': True})
     # Ban Support
@@ -213,8 +229,6 @@ class Database:
         """
         Validate and burn a verify token (one-time use).
         Returns the record if valid, else None.
-        Checks: exists, not used, belongs to this user, not expired,
-        and (when required) that the browser gateway was passed.
         """
         rec = await self.vcol.find_one({'_id': token})
         if not rec:
@@ -226,8 +240,6 @@ class Database:
         created = int(rec.get('created_ts', 0) or 0)
         if created and (int(time.time()) - created) > int(ttl_seconds):
             return None
-        # Anti-bypass: the shortener points at our gateway page, and only that
-        # page can set gateway_passed. A hand-built deep link never has it.
         if rec.get('require_gateway') and not rec.get('gateway_passed'):
             return None
         await self.vcol.update_one({'_id': token}, {'$set': {'used': True}})
