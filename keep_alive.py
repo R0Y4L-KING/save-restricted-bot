@@ -4,18 +4,15 @@ Keep-alive HTTP server for Render / Heroku
 
 Also hosts the ad-gate "Security Check" gateway:
 
-  GET /v/<token>      -> browser-check page (JS)
-  GET /v/<token>/go   -> marks gateway_passed and returns what the page
-                         should go to next:
-                           shortener / direct -> the Telegram deep link
-                           page_first         -> the ad (shortener) link
+  GET /r/<token>      -> browser-check page (JS)      (alias: /v/<token>)
+  GET /r/<token>/go   -> marks gateway_passed and returns what to open next:
+                           page_first (default) -> the AD (shortener) link
+                           shortener / direct   -> the Telegram deep link
 
-Modes (VERIFY_LINK_MODE):
-  shortener  - the page is reached THROUGH the shortener, so the page
-               requires a shortener Referer (bypass links are refused).
-  page_first - the bot hands out this page directly, checks run first and
-               the ad comes after; no Referer requirement.
-  direct     - same as page_first but with no ad at all.
+Why page_first is the default: the bot hands out OUR OWN link
+(https://<host>/r/<token>), never the shortener link. Opening it runs the
+checks and then REDIRECTS to the ad, so the user never sees/copies the
+shortener URL and cannot feed it to a bypass bot.
 ========================================================
 """
 
@@ -36,7 +33,9 @@ SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "vipshort.in")
 SHORTLINK_HOST = SHORTLINK_URL.replace("https://", "").replace("http://", "").strip("/").split("/")[0].lower()
 
 REQUIRE_REFERER = os.environ.get("REQUIRE_REFERER", "True").lower() == "true"
-VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "shortener").strip().lower()
+
+# page_first (default) | shortener | direct
+VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "page_first").strip().lower()
 
 # In these modes the page is opened straight from the bot, so a shortener
 # Referer cannot be expected.
@@ -170,10 +169,11 @@ GATEWAY_PAGE = """<!doctype html>
   btn.addEventListener("click", function(){
     btn.disabled = true;
     status.textContent = "Verifying…";
-    fetch("/v/" + encodeURIComponent(token) + "/go", {method: "POST"})
+    var base = location.pathname.replace(/\/$/, "");
+    fetch(base + "/go", {method: "POST"})
       .then(function(r){ return r.json(); })
       .then(function(d){
-        if (d && d.ok && d.url) { window.location.href = d.url; }
+        if (d && d.ok && d.url) { window.location.replace(d.url); }
         else { status.innerHTML = '<span class="err">' + ((d && d.error) || "Verification failed. Please try again.") + "</span>"; btn.disabled = false; }
       })
       .catch(function(){
@@ -188,6 +188,7 @@ GATEWAY_PAGE = """<!doctype html>
 """
 
 
+@app.route("/r/<token>", methods=["GET"])
 @app.route("/v/<token>", methods=["GET"])
 def gateway(token):
     referer = (request.headers.get("Referer") or "").lower()
@@ -198,11 +199,12 @@ def gateway(token):
             print(f"[gateway] BLOCKED token={token[:8]}... referer={referer!r}", flush=True)
             return Response(BLOCKED_PAGE, mimetype="text/html", status=403)
 
-    print(f"[gateway] OK token={token[:8]}... referer={referer!r}", flush=True)
+    print(f"[gateway] OK token={token[:8]}... mode={VERIFY_LINK_MODE} referer={referer!r}", flush=True)
     page = GATEWAY_PAGE.replace("__TOKEN__", html.escape(token, quote=True))
     return Response(page, mimetype="text/html")
 
 
+@app.route("/r/<token>/go", methods=["POST", "GET"])
 @app.route("/v/<token>/go", methods=["POST", "GET"])
 def gateway_go(token):
     if not BOT_USERNAME:

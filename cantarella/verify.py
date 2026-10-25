@@ -1,9 +1,11 @@
 # Ad / token verification gate (shortener + anti-bypass gateway)
 #
-# Three modes (VERIFY_LINK_MODE):
-#   shortener  (default) - bot -> AD -> own-domain checks page -> bot
-#   page_first           - bot -> own-domain checks page -> AD -> bot   (Codeflix order)
-#   direct               - bot -> own-domain checks page -> bot         (no ad)
+# Modes (VERIFY_LINK_MODE):
+#   page_first (default) - bot -> OUR OWN link (/r/<token>) -> checks -> AD -> bot
+#                          The user never sees the shortener link, so it cannot
+#                          be handed to a bypass bot.
+#   shortener            - bot -> AD -> our checks page -> bot
+#   direct               - bot -> our checks page -> bot   (no ad)
 #
 # In every mode the Telegram deep link is only accepted once the gateway page
 # has set gateway_passed, and it is one-time, short-lived and user-bound.
@@ -31,10 +33,9 @@ logger = LOGGER(__name__)
 VERIFY_PREFIX = "verify_"
 GATEWAY_BASE = (PUBLIC_URL or "").rstrip("/")
 
-# "shortener" | "page_first" | "direct"
-VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "shortener").strip().lower()
+# page_first | shortener | direct
+VERIFY_LINK_MODE = os.environ.get("VERIFY_LINK_MODE", "page_first").strip().lower()
 
-# Some shorteners reject the default aiohttp/python User-Agent.
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
@@ -81,7 +82,6 @@ async def _notify_admin(client: Client, text: str):
 
 
 async def _shortener_call(dest: str):
-    """Call the shortener. Returns (raw_body, error_string)."""
     if not SHORTLINK_API:
         return None, "SHORTLINK_API is not set"
     endpoint = _api_endpoint()
@@ -211,13 +211,13 @@ async def send_verify_prompt(client: Client, message: Message, target: str = Non
 
     bot = await client.get_me()
     deep_link = f"https://t.me/{bot.username}?start={VERIFY_PREFIX}{token}"
-    gateway_url = f"{GATEWAY_BASE}/v/{token}" if require_gateway else None
+    gateway_url = f"{GATEWAY_BASE}/r/{token}" if require_gateway else None
 
     verify_link = None
     detail = ""
 
     if gateway_url and VERIFY_LINK_MODE in ("direct", "page_first"):
-        # Own-domain link handed out straight from the bot (file-bot style).
+        # OUR OWN link is handed out - the shortener link is never shown.
         verify_link = gateway_url
         detail = f"{VERIFY_LINK_MODE} gateway link"
         if VERIFY_LINK_MODE == "page_first":
