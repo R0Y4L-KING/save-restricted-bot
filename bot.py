@@ -93,7 +93,7 @@ class Bot(Client):
             f"<b>Bot:</b> @{me.username}\n"
             f"<b>Users:</b> <code>{user_count} / 200</code>\n"
             f"<b>Time:</b> <code>{now.strftime('%I:%M %p')} IST</code>\n\n"
-            f"<b>Developed by @cantarellabots</b>"
+            f"<b>Developer by @ModAppsKing</b>"
         )
 
         try:

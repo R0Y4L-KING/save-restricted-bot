@@ -24,6 +24,8 @@ FREE_LIMIT_SIZE = 2 * 1024 * 1024 * 1024
 FREE_LIMIT_DAILY = 10
 UPI_ID = os.environ.get("UPI_ID", "20213904@axl")
 QR_CODE = os.environ.get("QR_CODE", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png")
+START_PHOTO = os.environ.get("START_PHOTO", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_banner.jpg")
+START_PHOTO_FALLBACK = os.environ.get("START_PHOTO_FALLBACK", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_fallback.jpg")
 REACTIONS = [
     "👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🤬",
     "😢", "🎉", "🤩", "🤮", "💩", "🙏", "👌", "🕊", "🤡", "🥱",
@@ -36,10 +38,10 @@ REACTIONS = [
 ]
 
 
-dev_text = "👨‍💻 Mind Behind This Bot:\n• @DmOwner\n• @akaza7902"
-expected_dev_hash = "b9e63b7578bdec13f3cb3162fe5f5e93dccaba3bfd5c8ddacbb90ffdcdcce402"
-channels_text = "📢 Official Channels:\n• @ReX_update\n• @THEUPDATEDGUYS\n\nStay updated for new features!"
-expected_channels_hash = "e19212e571bd0f6626450dd790029d392c0748c554d4b386a0c0752f4148d37d"
+dev_text = "👨‍💻 Mind Behind This Bot:\n• <a href='https://t.me/R0Y4L_KING'>@R0Y4L_KING</a>\n• <a href='https://t.me/SANATANI_B0Y'>@SANATANI_B0Y</a>"
+expected_dev_hash = "f31332100740a94bedd793abcd69f510265cc075eead12411e88be1659ae0fb7"
+channels_text = "📢 Official Channels:\n• <a href='https://t.me/ModAppsKing'>@ModAppsKing</a>\n• <a href='https://t.me/EduAppsKing'>@EduAppsKing</a>\n\nStay updated for new features!"
+expected_channels_hash = "aa15f609ef06478032149be1b87fac1bb3454e48aa57a91ea958c20aba397261"
 
 if (
     hashlib.sha256(dev_text.encode('utf-8')).hexdigest() != expected_dev_hash or
@@ -79,10 +81,10 @@ class script(object):
 """
     ABOUT_TXT = """<b>ℹ️ About This Bot</b>
 <blockquote><b>╭────[ 🧩 Technical Stack ]────⍟</b>
-<b>├⍟ 🤖 Bot Name : <a href=http://t.me/THEUPDATEDGUYS_Bot>Save Content</a></b>
-<b>├⍟ 👨‍💻 Developer : <a href=https://t.me/DmOwner>Ⓜ️ark X cantarella</a></b>
+<b>├⍟ 🤖 Bot Name : <a href=https://t.me/{bot_username}>{bot_name}</a></b>
+<b>├⍟ 👨‍💻 Developer : <a href=https://t.me/SANATANI_B0Y>@SANATANI_B0Y</a></b>
 <b>├⍟ 📚 Library : <a href='https://docs.pyrogram.org/'>Pyrogram Async</a></b>
-<b>├⍟ 🐍 Language : <a href='https://www.python.org/'>Python 3.11+</a></b>
+<b>├⍟ 🐍 Language : <a href='https://www.python.org/'>Python 3.10+</a></b>
 <b>├⍟ 🗄 Database : <a href='https://www.mongodb.com/'>MongoDB Atlas Cluster</a></b>
 <b>├⍟ 📡 Hosting : Dedicated High-Speed VPS</b>
 <b>╰───────────────⍟</b></blockquote>
@@ -115,7 +117,7 @@ class script(object):
 <b>⏳ ETA:</b> <code>{eta}</code>
 </blockquote>
 """
-    CAPTION = """<b><a href="https://t.me/THEUPDATEDGUYS"></a></b>\n\n<b>⚜️ Powered By : <a href="https://t.me/THEUPDATEDGUYS">THE UPDATED GUYS 😎</a></b>"""
+    CAPTION = """<b><a href="https://t.me/ModAppsKing"></a></b>\n\n<b>⚜️ Powered By : <a href="https://t.me/ModAppsKing">MODAPPSKING 😎</a></b>"""
     LIMIT_REACHED = """<b>🚫 Daily Limit Exceeded</b>
 <b>Your 10 free saves for today have been used.</b>
 <i>Quota resets automatically after 24 hours from first download.</i>
@@ -231,15 +233,6 @@ async def send_start(client: Client, message: Message):
         await message.react(emoji=random.choice(REACTIONS), big=True)
     except:
         pass
-    apis = ["https://api.waifu.pics/sfw/waifu", "https://nekos.life/api/v2/img/waifu"]
-    api_url = random.choice(apis)
-    try:
-        response = requests.get(api_url)
-        response.raise_for_status()
-        photo_url = response.json()["url"]
-    except Exception as e:
-        logger.error(f"Failed to fetch image from API: {e}")
-        photo_url = "https://i.postimg.cc/kX9tjGXP/16.png"
     buttons = [
         [
             InlineKeyboardButton("💎 Buy Premium", callback_data="buy_premium"),
@@ -256,14 +249,26 @@ async def send_start(client: Client, message: Message):
     ]
     reply_markup = InlineKeyboardMarkup(buttons)
     bot = await client.get_me()
-    await client.send_photo(
-        chat_id=message.chat.id,
-        photo=photo_url,
-        caption=script.START_TXT.format(message.from_user.mention, bot.username, bot.first_name),
-        reply_markup=reply_markup,
-        reply_to_message_id=message.id,
-        parse_mode=enums.ParseMode.HTML
-    )
+    caption = script.START_TXT.format(message.from_user.mention, bot.username, bot.first_name)
+    try:
+        await client.send_photo(
+            chat_id=message.chat.id,
+            photo=START_PHOTO,
+            caption=caption,
+            reply_markup=reply_markup,
+            reply_to_message_id=message.id,
+            parse_mode=enums.ParseMode.HTML
+        )
+    except Exception as e:
+        logger.error(f"Start banner failed, using fallback: {e}")
+        await client.send_photo(
+            chat_id=message.chat.id,
+            photo=START_PHOTO_FALLBACK,
+            caption=caption,
+            reply_markup=reply_markup,
+            reply_to_message_id=message.id,
+            parse_mode=enums.ParseMode.HTML
+        )
 @Client.on_message(filters.command(["help"]))
 async def send_help(client: Client, message: Message):
     buttons = [[InlineKeyboardButton("❌ Close Menu", callback_data="close_btn")]]
@@ -276,7 +281,7 @@ async def send_help(client: Client, message: Message):
 @Client.on_message(filters.command(["plan", "myplan", "premium"]))
 async def send_plan(client: Client, message: Message):
     buttons = [
-        [InlineKeyboardButton("📸 Send Payment Proof", url="https://t.me/DmOwner")],
+        [InlineKeyboardButton("📸 Send Payment Proof", url="https://t.me/SANATANI_B0Y")],
         [InlineKeyboardButton("❌ Close Menu", callback_data="close_btn")]
     ]
     await client.send_photo(
@@ -495,20 +500,28 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
     if not message: return
    # --- DEVELOPER INFO ---
     if data == "dev_info":
-        await callback_query.answer(
-            text=dev_text,
-            show_alert=True
+        buttons = [[InlineKeyboardButton("⬅️ Back to Home", callback_data="start_btn")]]
+        await client.edit_message_caption(
+            chat_id=message.chat.id,
+            message_id=message.id,
+            caption=dev_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
         )
     elif data == "channels_info":
-        await callback_query.answer(
-            text=channels_text,
-            show_alert=True
+        buttons = [[InlineKeyboardButton("⬅️ Back to Home", callback_data="start_btn")]]
+        await client.edit_message_caption(
+            chat_id=message.chat.id,
+            message_id=message.id,
+            caption=channels_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
         )
     elif data == "settings_btn":
         await settings_panel(client, callback_query)
     elif data == "buy_premium":
         buttons = [
-            [InlineKeyboardButton("📸 Send Payment Proof", url="https://t.me/DmOwner")],
+            [InlineKeyboardButton("📸 Send Payment Proof", url="https://t.me/SANATANI_B0Y")],
             [InlineKeyboardButton("⬅️ Back to Home", callback_data="start_btn")]
         ]
         await client.edit_message_media(
@@ -531,25 +544,17 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
         )
   
     elif data == "about_btn":
+        bot = await client.get_me()
         buttons = [[InlineKeyboardButton("⬅️ Back to Home", callback_data="start_btn")]]
         await client.edit_message_caption(
             chat_id=message.chat.id,
             message_id=message.id,
-            caption=script.ABOUT_TXT,
+            caption=script.ABOUT_TXT.format(bot_username=bot.username, bot_name=bot.first_name),
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode=enums.ParseMode.HTML
         )
     elif data == "start_btn":
         bot = await client.get_me()
-        apis = ["https://api.waifu.pics/sfw/waifu", "https://nekos.life/api/v2/img/waifu"]
-        api_url = random.choice(apis)
-        try:
-            response = requests.get(api_url)
-            response.raise_for_status()
-            photo_url = response.json()["url"]
-        except Exception as e:
-            logger.error(f"Failed to fetch image from API: {e}")
-            photo_url = "https://i.postimg.cc/cC7txyhz/15.png"
         buttons = [
             [
                 InlineKeyboardButton("💎 Buy Premium", callback_data="buy_premium"),
@@ -564,15 +569,22 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
                 InlineKeyboardButton('👨‍💻 Developers', callback_data="dev_info")
             ]
         ]
-        await client.edit_message_media(
-            chat_id=message.chat.id,
-            message_id=message.id,
-            media=InputMediaPhoto(
-                media=photo_url,
-                caption=script.START_TXT.format(callback_query.from_user.mention, bot.username, bot.first_name)
-            ),
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+        caption = script.START_TXT.format(callback_query.from_user.mention, bot.username, bot.first_name)
+        try:
+            await client.edit_message_media(
+                chat_id=message.chat.id,
+                message_id=message.id,
+                media=InputMediaPhoto(media=START_PHOTO, caption=caption),
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+        except Exception as e:
+            logger.error(f"Start banner failed, using fallback: {e}")
+            await client.edit_message_media(
+                chat_id=message.chat.id,
+                message_id=message.id,
+                media=InputMediaPhoto(media=START_PHOTO_FALLBACK, caption=caption),
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
     elif data == "close_btn":
         await message.delete()
     elif data in ["cmd_list_btn", "user_stats_btn", "dump_chat_btn", "thumb_btn", "caption_btn"]:
