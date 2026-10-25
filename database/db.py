@@ -1,5 +1,6 @@
 import motor.motor_asyncio
 import datetime
+import time
 from config import DB_NAME, DB_URI
 from logger import LOGGER
 logger = LOGGER(__name__)
@@ -9,13 +10,15 @@ class Database:
         self._client = motor.motor_asyncio.AsyncIOMotorClient(uri)
         self.db = self._client[database_name]
         self.col = self.db.users
+        self.vcol = self.db.verify_tokens
     def new_user(self, id, name):
         return dict(
             id = id,
             name = name,
             session = None,
             daily_usage = 0, # Added: Track saves
-            limit_reset_time = None # Added: Track 24h reset time
+            limit_reset_time = None, # Added: Track 24h reset time
+            verified_until = 0 # Added: ad-verification expiry (epoch seconds)
         )
    
     async def add_user(self, id, name):
@@ -176,4 +179,53 @@ class Database:
                 {'id': int(id)},
                 {'$inc': {'daily_usage': 1}}
             )
+    # ==========================================================
+    # Ad / token verification (shortener gate)
+    # ==========================================================
+
+    async def set_verified(self, id, until_ts):
+        """Mark a user verified until the given epoch timestamp."""
+        await self.col.update_one(
+            {'id': int(id)},
+            {'$set': {'verified_until': int(until_ts)}}
+        )
+
+    async def get_verified_until(self, id):
+        user = await self.col.find_one({'id': int(id)})
+        if not user:
+            return 0
+        return int(user.get('verified_until', 0) or 0)
+
+    async def create_verify_token(self, token, user_id, target, count):
+        """Store a one-time verify token bound to a single user."""
+        await self.vcol.insert_one({
+            '_id': token,
+            'user_id': int(user_id),
+            'target': target,
+            'count': count,
+            'used': False,
+            'created_ts': int(time.time())
+        })
+
+    async def consume_verify_token(self, token, user_id, ttl_seconds):
+        """
+        Validate and burn a verify token (one-time use).
+        Returns the record if valid, else None.
+        Checks: exists, not used, belongs to this user, not expired.
+        """
+        rec = await self.vcol.find_one({'_id': token})
+        if not rec:
+            return None
+        if rec.get('used'):
+            return None
+        if int(rec.get('user_id', 0)) != int(user_id):
+            return None
+        created = int(rec.get('created_ts', 0) or 0)
+        if created and (int(time.time()) - created) > int(ttl_seconds):
+            return None
+        await self.vcol.update_one({'_id': token}, {'$set': {'used': True}})
+        return rec
+
+
+
 db = Database(DB_URI, DB_NAME)
