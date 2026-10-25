@@ -302,11 +302,6 @@ async def send_plan(client: Client, message: Message):
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML
     )
-@Client.on_message(filters.command(["cancel"]))
-async def send_cancel(client: Client, message: Message):
-    batch_temp.IS_BATCH[message.from_user.id] = True
-    BATCH_STATE.pop(message.from_user.id, None)
-    await message.reply_text("❌ Batch Process Cancelled Successfully.")
 async def settings_panel(client, callback_query):
     """
     Renders the Settings Menu with professional layout.
@@ -333,8 +328,10 @@ async def settings_panel(client, callback_query):
     )
 @Client.on_message(filters.text & filters.private & ~filters.regex("^/"))
 async def save(client: Client, message: Message):
-    # Ignore while the interactive /batch flow is collecting input
+    # Pyrogram runs only the FIRST matching handler per group, so the /batch
+    # input steps must be handled right here - a separate handler never fires.
     if message.from_user.id in BATCH_STATE:
+        await handle_batch_input(client, message)
         return
     if "https://t.me/" in message.text:
         await process_save_link(client, message, message.text)
@@ -362,8 +359,7 @@ async def batch_command(client: Client, message: Message):
         )
 
 
-@Client.on_message(filters.private & filters.text & ~filters.regex("^/"))
-async def batch_handler(client: Client, message: Message):
+async def handle_batch_input(client: Client, message: Message):
     user_id = message.from_user.id
     state = BATCH_STATE.get(user_id)
     if not state:

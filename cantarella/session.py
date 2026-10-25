@@ -91,6 +91,14 @@ async def logout(client: Client, message: Message):
 @Client.on_message(filters.private & filters.command(["cancel", "cancellogin"]))
 async def cancel_login(client: Client, message: Message):
     user_id = message.from_user.id
+
+    # Also stop any running batch download and clear the interactive /batch flow
+    try:
+        from cantarella.start import BATCH_STATE, batch_temp
+        batch_temp.IS_BATCH[user_id] = True
+        BATCH_STATE.pop(user_id, None)
+    except Exception:
+        pass
    
     if user_id in LOGIN_STATE:
         state = LOGIN_STATE[user_id]
@@ -109,7 +117,7 @@ async def cancel_login(client: Client, message: Message):
         )
     else:
         await message.reply(
-            "<b>✅ Done! Any stuck menu button has been cleared.</b>",
+            "<b>❌ Cancelled.</b>\n<i>Any running task has been stopped.</i>",
             parse_mode=enums.ParseMode.HTML,
             reply_markup=remove_keyboard
         )
@@ -118,7 +126,7 @@ async def check_login_state(_, __, message):
     return message.from_user.id in LOGIN_STATE
 login_state_filter = filters.create(check_login_state)
 
-@Client.on_message(filters.private & filters.text & login_state_filter & ~filters.command(["cancel", "cancellogin"]))
+@Client.on_message(filters.private & filters.text & login_state_filter & ~filters.regex("^/"))
 async def login_handler(bot: Client, message: Message):
     user_id = message.from_user.id
     text = message.text
