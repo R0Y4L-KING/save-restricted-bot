@@ -117,6 +117,7 @@ class Bot(Client):
             BotCommand("start", "Start the bot"),
             BotCommand("help", "Show help"),
             BotCommand("batch", "Batch download a message range"),
+            BotCommand("verify", "Verify to unlock free access"),
             BotCommand("login", "Login"),
             BotCommand("logout", "Logout"),
             BotCommand("cancel", "Cancel current action"),

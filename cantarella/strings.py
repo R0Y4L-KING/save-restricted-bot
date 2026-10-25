@@ -70,6 +70,7 @@ COMMANDS_TXT = """<b>📜 All Available Commands</b>
 /logout — Disconnect account
 /cancel — Stop current task
 /batch — Batch download a range
+/verify — Verify to unlock free access
 </blockquote>
 
 <b>💎 Plan & Quota</b>
