@@ -529,7 +529,7 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
             message_id=message.id,
             media=InputMediaPhoto(
                 media=SUBSCRIPTION,
-                caption=script.PREMIUM_TEXT.format(callback_query.from_user.mention, UPI_ID, QR_CODE)
+                caption=script.PREMIUM_TEXT.format(UPI_ID, QR_CODE)
             ),
             reply_markup=InlineKeyboardMarkup(buttons)
         )
