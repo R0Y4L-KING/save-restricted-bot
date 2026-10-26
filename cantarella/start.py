@@ -519,11 +519,10 @@ async def process_save_link(client: Client, message: Message, text: str, count: 
                     max_concurrent_transmissions=10
                 )
                 await acc.connect()
-                # Pyrogram needs the account's own profile (self.me) before it
-                # can upload - otherwise send_* fails with
-                # "'NoneType' object has no attribute 'is_premium'".
+                # Pyrogram only assigns self.me inside start(), but save_file()
+                # reads me.is_premium for the upload limit - so set it here.
                 try:
-                    await acc.get_me()
+                    acc.me = await acc.get_me()
                 except Exception:
                     pass
             except Exception as e:
