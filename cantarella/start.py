@@ -519,6 +519,13 @@ async def process_save_link(client: Client, message: Message, text: str, count: 
                     max_concurrent_transmissions=10
                 )
                 await acc.connect()
+                # Pyrogram needs the account's own profile (self.me) before it
+                # can upload - otherwise send_* fails with
+                # "'NoneType' object has no attribute 'is_premium'".
+                try:
+                    await acc.get_me()
+                except Exception:
+                    pass
             except Exception as e:
                 batch_temp.IS_BATCH[message.from_user.id] = True
                 return await message.reply(f"<b>❌ Authentication Failed</b>\n\n<i>Your session may have expired. Please /logout and /login again.</i>\n<code>{e}</code>", parse_mode=enums.ParseMode.HTML)
