@@ -21,6 +21,10 @@ from logger import LOGGER
 logger = LOGGER(__name__)
 SUBSCRIPTION = os.environ.get('SUBSCRIPTION', 'https://graph.org/file/242b7f1b52743938d81f1.jpg')
 FREE_LIMIT_SIZE = 2 * 1024 * 1024 * 1024
+
+# Telegram bots can only UPLOAD files up to 2 GB. Anything bigger has to be
+# sent from the user's own account (Premium accounts allow up to 4 GB).
+BOT_UPLOAD_LIMIT = 2000 * 1024 * 1024
 FREE_LIMIT_DAILY = 10
 UPI_ID = os.environ.get("UPI_ID", "20213904@axl")
 QR_CODE = os.environ.get("QR_CODE", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png")
@@ -591,6 +595,7 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             if os.path.exists(temp_dir): shutil.rmtree(temp_dir)
             return await smsg.edit("❌ **Task Cancelled**")
         return await smsg.delete()
+    upload_ok = True
     try:
         asyncio.create_task(upstatus(client, f'{message.id}upstatus.txt', smsg, message.chat.id))
        
@@ -617,20 +622,42 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             final_caption = script.CAPTION.format(file_name=file.split("/")[-1])
             if msg.caption:
                 final_caption += f"\n\n{msg.caption}"
+        # The bot itself can only upload up to 2 GB. For bigger files send from
+        # the user's own logged-in account instead (works up to 4 GB).
+        uploader = client
+        if file_size and file_size > BOT_UPLOAD_LIMIT:
+            uploader = acc
+            logger.info(f"File {humanbytes(file_size)} > 2GB - uploading via the user session")
+
         if msg_type == "Document":
-            await client.send_document(message.chat.id, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            await uploader.send_document(message.chat.id, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
         elif msg_type == "Video":
-            await client.send_video(message.chat.id, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            await uploader.send_video(message.chat.id, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
         elif msg_type == "Audio":
-            await client.send_audio(message.chat.id, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            await uploader.send_audio(message.chat.id, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
         elif msg_type == "Photo":
-            await client.send_photo(message.chat.id, file, caption=final_caption)
-       
+            await uploader.send_photo(message.chat.id, file, caption=final_caption)
+
+        upload_ok = True
     except Exception as e:
-         await smsg.edit(f"Upload Failed: {e}")
+        upload_ok = False
+        logger.error(f"Upload failed: {e}")
+        hint = ""
+        if file_size and file_size > BOT_UPLOAD_LIMIT:
+            hint = ("\n\n<i>This file is over 2 GB. Telegram only lets a Premium "
+                    "account upload that much - try /login with a Premium account.</i>")
+        try:
+            await smsg.edit(
+                f"<b>❌ Upload Failed</b>\n\n<code>{e}</code>{hint}",
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception:
+            pass
     if os.path.exists(f'{message.id}upstatus.txt'): os.remove(f'{message.id}upstatus.txt')
     if os.path.exists(temp_dir): shutil.rmtree(temp_dir)
-    await client.delete_messages(message.chat.id, [smsg.id])
+    # Keep the message on screen when it failed, so the user (and you) can see why.
+    if upload_ok:
+        await client.delete_messages(message.chat.id, [smsg.id])
 @Client.on_callback_query()
 async def button_callbacks(client: Client, callback_query: CallbackQuery):
     data = callback_query.data
