@@ -73,7 +73,7 @@ VERIFY_EXPIRE = int(os.environ.get("VERIFY_EXPIRE", "21600"))
 VERIFY_TOKEN_TTL = int(os.environ.get("VERIFY_TOKEN_TTL", "600"))
 
 # Tutorial video + photo shown on the verify screen
-TUT_VID = os.environ.get("TUT_VID", "https://t.me/ModAppsKing")
+TUT_VID = os.environ.get("TUT_VID", "https://t.me/H0W_2_USE/83")
 VERIFY_PIC = os.environ.get(
     "VERIFY_PIC",
     "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/start_banner.jpg"

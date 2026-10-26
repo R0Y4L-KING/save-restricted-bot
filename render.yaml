@@ -58,4 +58,4 @@ services:
       - key: VERIFY_EXPIRE
         value: "21600"
       - key: TUT_VID
-        value: https://t.me/ModAppsKing
+        value: https://t.me/H0W_2_USE/83
