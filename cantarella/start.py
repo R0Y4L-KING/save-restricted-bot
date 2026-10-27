@@ -22,9 +22,12 @@ logger = LOGGER(__name__)
 SUBSCRIPTION = os.environ.get('SUBSCRIPTION', 'https://graph.org/file/242b7f1b52743938d81f1.jpg')
 FREE_LIMIT_SIZE = 2 * 1024 * 1024 * 1024
 
-# Telegram bots can only UPLOAD files up to 2 GB. Anything bigger has to be
-# sent from the user's own account (Premium accounts allow up to 4 GB).
+# Telegram bots can only UPLOAD files up to 2 GB (2000 MiB). A Premium account
+# gets 4000 MiB. Anything bigger is split into parts.
 BOT_UPLOAD_LIMIT = 2000 * 1024 * 1024
+ACCOUNT_UPLOAD_LIMIT_PREMIUM = 4000 * 1024 * 1024
+# Keep every part safely under the 2 GB ceiling.
+SPLIT_TARGET = 1900 * 1024 * 1024
 FREE_LIMIT_DAILY = 10
 UPI_ID = os.environ.get("UPI_ID", "20213904@axl")
 QR_CODE = os.environ.get("QR_CODE", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png")
@@ -547,6 +550,73 @@ async def process_save_link(client: Client, message: Message, text: str, count: 
                 "<i>Powered by @ModAppsKing</i>",
                 parse_mode=enums.ParseMode.HTML
             )
+
+
+def _ffmpeg_exe():
+    """Return an ffmpeg binary path (pip package first, then PATH)."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    return shutil.which("ffmpeg")
+
+
+async def split_video(file_path, out_dir):
+    """Split a video into PLAYABLE parts without re-encoding (-c copy)."""
+    ff = _ffmpeg_exe()
+    if not ff:
+        logger.warning("ffmpeg not found - falling back to a byte split")
+        return []
+    ext = os.path.splitext(file_path)[1] or ".mp4"
+    pattern = os.path.join(out_dir, f"part_%03d{ext}")
+    cmd = [
+        ff, "-y", "-i", file_path,
+        "-c", "copy", "-map", "0",
+        "-f", "segment", "-segment_size", str(SPLIT_TARGET),
+        "-reset_timestamps", "1",
+        pattern,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            logger.error(f"ffmpeg split failed: {err.decode(errors='ignore')[-400:]}")
+            return []
+    except Exception as e:
+        logger.error(f"ffmpeg split error: {e}")
+        return []
+    parts = sorted(
+        os.path.join(out_dir, f) for f in os.listdir(out_dir) if f.startswith("part_")
+    )
+    return parts if len(parts) > 1 else []
+
+
+def split_binary(file_path, out_dir):
+    """Byte-split any file into .001/.002 parts (join with 7-Zip)."""
+    base = os.path.basename(file_path)
+    parts = []
+    try:
+        with open(file_path, "rb") as src:
+            idx = 1
+            while True:
+                chunk = src.read(SPLIT_TARGET)
+                if not chunk:
+                    break
+                part = os.path.join(out_dir, f"{base}.{idx:03d}")
+                with open(part, "wb") as out:
+                    out.write(chunk)
+                parts.append(part)
+                idx += 1
+    except Exception as e:
+        logger.error(f"Byte split failed: {e}")
+    return parts if len(parts) > 1 else []
+
+
 async def handle_restricted_content(client: Client, acc, message: Message, chat_target, msgid):
     try:
         msg: Message = await acc.get_messages(chat_target, msgid)
@@ -628,21 +698,56 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             final_caption = script.CAPTION.format(file_name=file.split("/")[-1])
             if msg.caption:
                 final_caption += f"\n\n{msg.caption}"
-        # The bot itself can only upload up to 2 GB. For bigger files send from
-        # the user's own logged-in account instead (works up to 4 GB).
-        uploader = client
-        if file_size and file_size > BOT_UPLOAD_LIMIT:
-            uploader = acc
-            logger.info(f"File {humanbytes(file_size)} > 2GB - uploading via the user session")
 
-        if msg_type == "Document":
-            await uploader.send_document(message.chat.id, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
-        elif msg_type == "Video":
-            await uploader.send_video(message.chat.id, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
-        elif msg_type == "Audio":
-            await uploader.send_audio(message.chat.id, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
-        elif msg_type == "Photo":
-            await uploader.send_photo(message.chat.id, file, caption=final_caption)
+        # ---- Decide how to deliver it --------------------------------------
+        acct_premium = bool(getattr(getattr(acc, "me", None), "is_premium", False))
+        acct_limit = ACCOUNT_UPLOAD_LIMIT_PREMIUM if acct_premium else BOT_UPLOAD_LIMIT
+        size = file_size or 0
+
+        if size <= BOT_UPLOAD_LIMIT:
+            uploader = client
+            parts = [file]
+        elif size <= acct_limit:
+            uploader = acc
+            parts = [file]
+        else:
+            # Bigger than Telegram allows on this account -> split into parts
+            parts = []
+            if msg_type == "Video":
+                try:
+                    await smsg.edit("<b>✂️ Splitting the video into playable parts…</b>", parse_mode=enums.ParseMode.HTML)
+                except Exception:
+                    pass
+                parts = await split_video(file, temp_dir)
+            if len(parts) < 2:
+                try:
+                    await smsg.edit("<b>✂️ Splitting the file into parts…</b>", parse_mode=enums.ParseMode.HTML)
+                except Exception:
+                    pass
+                parts = split_binary(file, temp_dir)
+            if len(parts) < 2:
+                raise ValueError(
+                    "This file is too big for Telegram and could not be split "
+                    "(not enough disk space)."
+                )
+            uploader = client   # every part is under 2 GB, so the bot can send it
+
+        total_parts = len(parts)
+        for idx, part in enumerate(parts, start=1):
+            cap = final_caption
+            if total_parts > 1:
+                cap += f"\n\n<b>📦 Part {idx}/{total_parts}</b>"
+            thumb = ph_path if idx == 1 else None
+            if total_parts > 1:
+                await uploader.send_document(message.chat.id, part, thumb=thumb, caption=cap, progress=progress, progress_args=[message, "up"])
+            elif msg_type == "Document":
+                await uploader.send_document(message.chat.id, part, thumb=thumb, caption=cap, progress=progress, progress_args=[message, "up"])
+            elif msg_type == "Video":
+                await uploader.send_video(message.chat.id, part, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=thumb, caption=cap, progress=progress, progress_args=[message, "up"])
+            elif msg_type == "Audio":
+                await uploader.send_audio(message.chat.id, part, thumb=thumb, caption=cap, progress=progress, progress_args=[message, "up"])
+            elif msg_type == "Photo":
+                await uploader.send_photo(message.chat.id, part, caption=cap)
 
         upload_ok = True
     except Exception as e:
