@@ -9,6 +9,9 @@ requests
 # --- Database & Utilities ---
 motor
 
+# --- Video splitting (bundles an ffmpeg binary, no system install needed) ---
+imageio-ffmpeg
+
 # --- Web Framework (Flask Stack) ---
 Flask==1.1.2
 gunicorn==20.1.0
