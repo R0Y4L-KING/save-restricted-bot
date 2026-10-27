@@ -711,7 +711,8 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             uploader = acc
             parts = [file]
         else:
-            # Bigger than Telegram allows on this account -> split into parts
+            # Bigger than Telegram allows on this account -> split into parts.
+            # Everything heavy runs off the event loop so the bot stays alive.
             parts = []
             if msg_type == "Video":
                 try:
@@ -724,7 +725,7 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
                     await smsg.edit("<b>✂️ Splitting the file into parts…</b>", parse_mode=enums.ParseMode.HTML)
                 except Exception:
                     pass
-                parts = split_binary(file, temp_dir)
+                parts = await asyncio.to_thread(split_binary, file, temp_dir)
             if len(parts) < 2:
                 raise ValueError(
                     "This file is too big for Telegram and could not be split "
