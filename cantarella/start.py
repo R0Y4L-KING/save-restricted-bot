@@ -622,12 +622,31 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
         msg: Message = await acc.get_messages(chat_target, msgid)
     except Exception as e:
         logger.error(f"Error fetching message: {e}")
+        await message.reply(
+            "<b>❌ Could not open that post.</b>\n\n"
+            "<blockquote>• Please do <code>/login</code> first — I use <b>your</b> "
+            "account to read restricted posts.\n"
+            "• The account you logged in with must be a <b>member of that channel</b>.\n"
+            "• Check that the link is correct and the post still exists.</blockquote>\n"
+            f"<code>{e}</code>",
+            parse_mode=enums.ParseMode.HTML
+        )
         return
     if msg.empty:
+        await message.reply(
+            "<b>❌ That post was not found.</b>\n\n"
+            "<i>It may have been deleted, or the link is wrong.</i>",
+            parse_mode=enums.ParseMode.HTML
+        )
         return
    
     msg_type = get_message_type(msg)
     if not msg_type:
+        await message.reply(
+            "<b>❌ Nothing to save in that post.</b>\n\n"
+            "<i>I can save videos, documents, audio and photos.</i>",
+            parse_mode=enums.ParseMode.HTML
+        )
         return
     file_size = 0
     if msg_type == "Document": file_size = msg.document.file_size
