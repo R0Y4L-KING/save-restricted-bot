@@ -752,6 +752,18 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             if msg.caption:
                 final_caption += f"\n\n{msg.caption}"
 
+        # Apply the user's /set_del_word and /set_repl_word rules
+        try:
+            for w in (await db.get_delete_words(message.from_user.id)) or []:
+                if w:
+                    final_caption = final_caption.replace(w, "")
+            for old, new in ((await db.get_replace_words(message.from_user.id)) or {}).items():
+                if old:
+                    final_caption = final_caption.replace(old, new or "")
+            final_caption = final_caption.strip()
+        except Exception as e:
+            logger.error(f"Failed to apply word rules: {e}")
+
         # ---- Decide how to deliver it --------------------------------------
         acct_premium = bool(getattr(getattr(acc, "me", None), "is_premium", False))
         acct_limit = ACCOUNT_UPLOAD_LIMIT_PREMIUM if acct_premium else BOT_UPLOAD_LIMIT
