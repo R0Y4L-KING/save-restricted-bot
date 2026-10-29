@@ -28,6 +28,8 @@ BOT_UPLOAD_LIMIT = 2000 * 1024 * 1024
 ACCOUNT_UPLOAD_LIMIT_PREMIUM = 4000 * 1024 * 1024
 # Keep every part safely under the 2 GB ceiling.
 SPLIT_TARGET = 1900 * 1024 * 1024
+# Read/write in small chunks so RAM stays low (Render free has only 512 MB).
+SPLIT_CHUNK = 8 * 1024 * 1024
 FREE_LIMIT_DAILY = 10
 UPI_ID = os.environ.get("UPI_ID", "20213904@axl")
 QR_CODE = os.environ.get("QR_CODE", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png")
@@ -597,19 +599,29 @@ async def split_video(file_path, out_dir):
 
 
 def split_binary(file_path, out_dir):
-    """Byte-split any file into .001/.002 parts (join with 7-Zip)."""
+    """Byte-split a file into .001/.002 parts using a SMALL memory footprint.
+
+    Never read the whole part into RAM - that is what crashed the 512 MB
+    Render instance. We stream it in SPLIT_CHUNK (8 MB) pieces.
+    """
     base = os.path.basename(file_path)
     parts = []
     try:
         with open(file_path, "rb") as src:
             idx = 1
             while True:
-                chunk = src.read(SPLIT_TARGET)
-                if not chunk:
-                    break
                 part = os.path.join(out_dir, f"{base}.{idx:03d}")
+                written = 0
                 with open(part, "wb") as out:
-                    out.write(chunk)
+                    while written < SPLIT_TARGET:
+                        buf = src.read(min(SPLIT_CHUNK, SPLIT_TARGET - written))
+                        if not buf:
+                            break
+                        out.write(buf)
+                        written += len(buf)
+                if written == 0:
+                    os.remove(part)
+                    break
                 parts.append(part)
                 idx += 1
     except Exception as e:
@@ -622,15 +634,35 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
         msg: Message = await acc.get_messages(chat_target, msgid)
     except Exception as e:
         logger.error(f"Error fetching message: {e}")
-        await message.reply(
-            "<b>❌ Could not open that post.</b>\n\n"
-            "<blockquote>• Please do <code>/login</code> first — I use <b>your</b> "
-            "account to read restricted posts.\n"
-            "• The account you logged in with must be a <b>member of that channel</b>.\n"
-            "• Check that the link is correct and the post still exists.</blockquote>\n"
-            f"<code>{e}</code>",
-            parse_mode=enums.ParseMode.HTML
-        )
+        err = str(e)
+        if "CHANNEL_INVALID" in err or "CHANNEL_PRIVATE" in err:
+            await message.reply(
+                "<b>❌ No access to that channel.</b>\n\n"
+                "<blockquote>The account you logged in with is <b>not a member</b> of "
+                "that channel (or the channel was deleted).\n\n"
+                "Join it with that account, then send the link again.</blockquote>",
+                parse_mode=enums.ParseMode.HTML
+            )
+        elif "AUTH_KEY_UNREGISTERED" in err or "SESSION_REVOKED" in err or "USER_DEACTIVATED" in err:
+            try:
+                await db.set_session(message.from_user.id, session=None)
+            except Exception:
+                pass
+            await message.reply(
+                "<b>⚠️ Your login expired.</b>\n\n"
+                "<i>Please send /login again to reconnect your account.</i>",
+                parse_mode=enums.ParseMode.HTML
+            )
+        else:
+            await message.reply(
+                "<b>❌ Could not open that post.</b>\n\n"
+                "<blockquote>• Please do <code>/login</code> first — I use <b>your</b> "
+                "account to read restricted posts.\n"
+                "• The account you logged in with must be a <b>member of that channel</b>.\n"
+                "• Check that the link is correct and the post still exists.</blockquote>\n"
+                f"<code>{e}</code>",
+                parse_mode=enums.ParseMode.HTML
+            )
         return
     if msg.empty:
         await message.reply(
