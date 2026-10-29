@@ -30,6 +30,8 @@ ACCOUNT_UPLOAD_LIMIT_PREMIUM = 4000 * 1024 * 1024
 SPLIT_TARGET = 1900 * 1024 * 1024
 # Read/write in small chunks so RAM stays low (Render free has only 512 MB).
 SPLIT_CHUNK = 8 * 1024 * 1024
+# These extensions get a PLAYABLE ffmpeg split instead of a byte split.
+VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".webm", ".mov", ".m4v", ".flv", ".ts", ".mpg", ".mpeg", ".3gp"}
 FREE_LIMIT_DAILY = 10
 UPI_ID = os.environ.get("UPI_ID", "20213904@axl")
 QR_CODE = os.environ.get("QR_CODE", "https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png")
@@ -754,6 +756,10 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
         acct_premium = bool(getattr(getattr(acc, "me", None), "is_premium", False))
         acct_limit = ACCOUNT_UPLOAD_LIMIT_PREMIUM if acct_premium else BOT_UPLOAD_LIMIT
         size = file_size or 0
+        # A .mkv/.mp4 often arrives as a Document - still treat it as a video
+        # so the parts come out playable instead of a raw byte split.
+        ext = os.path.splitext(file)[1].lower()
+        is_video = (msg_type == "Video") or (ext in VIDEO_EXTS)
 
         if size <= BOT_UPLOAD_LIMIT:
             uploader = client
@@ -765,7 +771,7 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             # Bigger than Telegram allows on this account -> split into parts.
             # Everything heavy runs off the event loop so the bot stays alive.
             parts = []
-            if msg_type == "Video":
+            if is_video:
                 try:
                     await smsg.edit("<b>✂️ Splitting the video into playable parts…</b>", parse_mode=enums.ParseMode.HTML)
                 except Exception:
