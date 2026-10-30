@@ -900,13 +900,15 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
             reply_markup=InlineKeyboardMarkup(buttons)
         )
     elif data == "help_btn":
+        # Captions are limited to 1024 chars, so send a normal text message
+        # (limit 4096) instead of editing the photo caption.
         buttons = [[InlineKeyboardButton("⬅️ Back to Home", callback_data="start_btn")]]
-        await client.edit_message_caption(
+        await client.send_message(
             chat_id=message.chat.id,
-            message_id=message.id,
-            caption=script.HELP_TXT,
+            text=script.HELP_TXT,
             reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode=enums.ParseMode.HTML
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
         )
   
     elif data == "about_btn":
