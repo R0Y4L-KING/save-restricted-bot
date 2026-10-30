@@ -106,7 +106,7 @@ Just send me the post link 👇
 <blockquote><b>🛑 Free plan limits</b></blockquote>
 • <b>Daily saves:</b> 10 files / 24 hours
 • <b>File size:</b> up to 2 GB
-• <b>Verification:</b> once every 6 hours
+• <b>Verification:</b> only after your 10 free saves are used up
 
 <blockquote><b>💎 Premium benefits</b></blockquote>
 • ♾️ Unlimited daily saves
@@ -478,22 +478,16 @@ async def handle_batch_input(client: Client, message: Message):
 
 async def process_save_link(client: Client, message: Message, text: str, count: int = None):
     if "https://t.me/" in text:
-        # Ad-verification gate: free users must complete the shortener first
         from cantarella.verify import is_user_verified, send_verify_prompt
+
+        # Premium and already-verified users go straight through.
+        # Everyone else gets their 10 daily saves FIRST - verification is only
+        # asked for once that free quota is used up.
         if not await is_user_verified(message.from_user.id):
-            await send_verify_prompt(client, message, text, count)
-            return
-       
-        is_limit_reached = await db.check_limit(message.from_user.id)
-        if is_limit_reached:
-            btn = InlineKeyboardMarkup([[InlineKeyboardButton("💎 Upgrade to Premium", callback_data="buy_premium")]])
-            return await message.reply_photo(
-                photo=SUBSCRIPTION,
-                caption=script.LIMIT_REACHED,
-                reply_markup=btn,
-                parse_mode=enums.ParseMode.HTML
-            )
-       
+            if await db.check_limit(message.from_user.id):
+                await send_verify_prompt(client, message, text, count)
+                return
+
         if batch_temp.IS_BATCH.get(message.from_user.id) == False:
             return await message.reply_text("<b>⚠️ A Task is Currently Processing.</b>\n<i>Please wait for completion or use /cancel to stop.</i>", parse_mode=enums.ParseMode.HTML)
         datas = text.split("/")
