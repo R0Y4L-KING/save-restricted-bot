@@ -510,6 +510,23 @@ async def process_save_link(client: Client, message: Message, text: str, count: 
            
             if batch_temp.IS_BATCH.get(message.from_user.id):
                 break
+
+            # Enforce the daily quota per file - otherwise a batch would skip it.
+            if not await is_user_verified(message.from_user.id):
+                if await db.check_limit(message.from_user.id):
+                    batch_temp.IS_BATCH[message.from_user.id] = True
+                    btn = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔓 Verify Now", callback_data="buy_premium")]
+                    ])
+                    await message.reply(
+                        "<b>🚫 Daily limit reached</b>\n\n"
+                        "<blockquote>You've used your <b>10 free saves</b> for today.\n\n"
+                        "Verify once to get <b>6 hours of unlimited access</b>, or "
+                        "get Premium for good.</blockquote>",
+                        reply_markup=btn,
+                        parse_mode=enums.ParseMode.HTML
+                    )
+                    return
            
             if is_public_link:
                 username = datas[3]
