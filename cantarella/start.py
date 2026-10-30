@@ -61,6 +61,23 @@ if (
 ):
     raise Exception("Tampered developer info detected! Bot will not start.")
 
+
+class _UserShim:
+    """Minimal stand-in so verify helpers can read a user id from a callback."""
+    def __init__(self, user_id):
+        self.id = user_id
+
+
+class _MsgShim:
+    """Wraps a bot message but reports the CLICKING user as from_user."""
+    def __init__(self, msg, user_id):
+        self._msg = msg
+        self.from_user = _UserShim(user_id)
+
+    def __getattr__(self, item):
+        return getattr(self._msg, item)
+
+
 class script(object):
    
     START_TXT = """<b>👋 Hello {},</b>
@@ -516,13 +533,13 @@ async def process_save_link(client: Client, message: Message, text: str, count: 
                 if await db.check_limit(message.from_user.id):
                     batch_temp.IS_BATCH[message.from_user.id] = True
                     btn = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🔓 Verify Now", callback_data="buy_premium")]
+                        [InlineKeyboardButton("🔓 Verify Now", callback_data="verify_now")],
+                        [InlineKeyboardButton("💎 Get Premium", callback_data="buy_premium")]
                     ])
                     await message.reply(
                         "<b>🚫 Daily limit reached</b>\n\n"
                         "<blockquote>You've used your <b>10 free saves</b> for today.\n\n"
-                        "Verify once to get <b>6 hours of unlimited access</b>, or "
-                        "get Premium for good.</blockquote>",
+                        "Tap <b>🔓 Verify Now</b> for 6 hours of unlimited access.</blockquote>",
                         reply_markup=btn,
                         parse_mode=enums.ParseMode.HTML
                     )
@@ -901,6 +918,15 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
         )
     elif data == "settings_btn":
         await settings_panel(client, callback_query)
+    elif data == "verify_now":
+        # Real verification flow (the clicking user, not the bot, is the owner)
+        from cantarella.verify import is_user_verified, send_verify_prompt
+        uid = callback_query.from_user.id
+        if await is_user_verified(uid):
+            await callback_query.answer("You're already verified ✅", show_alert=True)
+        else:
+            await callback_query.answer()
+            await send_verify_prompt(client, _MsgShim(message, uid))
     elif data == "buy_premium":
         buttons = [
             [InlineKeyboardButton("💳 Pay Now (UPI)", url=PAY_URL)],
