@@ -80,26 +80,50 @@ Use <code>/batch</code> and send a range link.
 <b>4️⃣ Free users:</b> verify once and get full access for 6 hours.</blockquote>
 <b>👇 Select an Option Below to Get Started:</b>
 """
-    HELP_TXT = """<b>📚 Comprehensive Help & User Guide</b>
-<blockquote><b>1️⃣ Public Channels (No Login Required)</b></blockquote>
-• Forward or send the post link directly.
-• Compatible with any public channel or group.
-• <i>Example Link:</i> <code>https://t.me/channel/123</code>
-<blockquote><b>2️⃣ Private/Restricted Channels (Login Required)</b></blockquote>
-• Use <code>/login</code> to securely connect your Telegram account.
-• Send the private link (e.g., <code>t.me/c/123...</code>).
-• Bot accesses content using your authenticated session.
-<blockquote><b>3️⃣ Batch Downloading Mode</b></blockquote>
-• Use <code>/batch</code>, or just send the link directly.
-• Send a range link, e.g. <code>https://t.me/channel/100-110</code>.
-• The bot saves every message in that ID range.
-<blockquote><b>🛑 Free User Limitations:</b></blockquote>
-• <b>Daily Quota:</b> 10 Files / 24 Hours
-• <b>File Size Cap:</b> 2GB Maximum
-<blockquote><b>💎 Premium Membership Benefits:</b></blockquote>
-• Unlimited Downloads & No Restrictions.
-• Priority Support & Advanced Features.
-"""
+    HELP_TXT = """<b>📚 Help & User Guide</b>
+<i>Everything you need, in one place.</i>
+
+<blockquote><b>1️⃣ Save a single post</b></blockquote>
+Just send me the post link 👇
+<code>https://t.me/channel/123</code>
+
+<blockquote><b>2️⃣ Private / restricted channel</b></blockquote>
+• Do <code>/login</code> first
+• Send the OTP <b>with spaces</b> → <code>1 2 3 4 5</code>
+• Then send the private link 👇
+<code>https://t.me/c/123456789/45</code>
+<i>⚠️ The account you log in with must be a member of that channel.</i>
+
+<blockquote><b>3️⃣ Batch mode — many files at once</b></blockquote>
+• Send <code>/batch</code>
+• I'll ask for the <b>start link</b> → send it
+• Then I'll ask <b>how many messages</b> → send a number (1–100)
+• I save every post from there onwards ✅
+
+<i>Or send a range link directly:</i>
+<code>https://t.me/channel/100-110</code>
+
+<blockquote><b>🛑 Free plan limits</b></blockquote>
+• <b>Daily saves:</b> 10 files / 24 hours
+• <b>File size:</b> up to 2 GB
+• <b>Verification:</b> once every 6 hours
+
+<blockquote><b>💎 Premium benefits</b></blockquote>
+• ♾️ Unlimited daily saves
+• 🚀 No verification / ads
+• 📂 Larger file sizes
+• 🖼 Custom thumbnail & caption
+• ⚡ Priority speed
+
+<blockquote><b>⚙️ Personalise your saves</b></blockquote>
+• <code>/set_thumb</code> — custom thumbnail
+• <code>/set_caption</code> — custom caption
+• <code>/set_del_word</code> — remove words from captions
+• <code>/set_repl_word</code> — replace words in captions
+• <code>/myplan</code> — check your plan
+• <code>/cancel</code> — stop a running task
+
+<i>Need help? Contact @SANATANI_B0Y</i>"""
     ABOUT_TXT = """<b>ℹ️ About This Bot</b>
 <blockquote><b>╭────[ 🧩 Technical Stack ]────⍟</b>
 <b>├⍟ 🤖 Bot Name : <a href=https://t.me/{bot_username}>{bot_name}</a></b>
@@ -319,7 +343,8 @@ async def send_help(client: Client, message: Message):
         chat_id=message.chat.id,
         text=script.HELP_TXT,
         reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.HTML
+        parse_mode=enums.ParseMode.HTML,
+        disable_web_page_preview=True
     )
 @Client.on_message(filters.command(["plan", "premium"]))
 async def send_plan(client: Client, message: Message):
