@@ -369,6 +369,54 @@ async def send_plan(client: Client, message: Message):
     await show_plans(client, message)
 
 
+async def settings_panel(client, callback_query):
+    """
+    Renders the Settings Menu with professional layout.
+    """
+    user_id = callback_query.from_user.id
+    is_premium = await db.check_premium(user_id)
+    badge = "💎 Premium Member" if is_premium else "👤 Standard User"
+
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📜 Command List", callback_data="cmd_list_btn")],
+        [InlineKeyboardButton("📊 Usage Stats", callback_data="user_stats_btn")],
+        [InlineKeyboardButton("🗑 Dump Chat Settings", callback_data="dump_chat_btn")],
+        [InlineKeyboardButton("🖼 Manage Thumbnail", callback_data="thumb_btn")],
+        [InlineKeyboardButton("📝 Edit Caption", callback_data="caption_btn")],
+        [InlineKeyboardButton("⬅️ Return to Home", callback_data="start_btn")]
+    ])
+
+    text = f"<b>⚙️ Settings Dashboard</b>\n\n<b>Account Status:</b> {badge}\n<b>User ID:</b> <code>{user_id}</code>\n\n<i>Customize and manage your bot preferences below for an optimized experience:</i>"
+
+    await callback_query.edit_message_caption(
+        caption=text,
+        reply_markup=buttons,
+        parse_mode=enums.ParseMode.HTML
+    )
+@Client.on_message(filters.text & filters.private & ~filters.regex("^/"))
+async def save(client: Client, message: Message):
+    # Payment proof (UTR / screenshot) and admin-panel input arrive as plain
+    # text too, so they are routed here (same Pyrogram rule as /batch).
+    from cantarella.premium import PENDING_UTR, handle_utr_input
+    if message.from_user.id in PENDING_UTR:
+        if await handle_utr_input(client, message):
+            return
+    from cantarella.adminpanel import ADMIN_STATE, handle_admin_input
+    if message.from_user.id in ADMIN_STATE:
+        if await handle_admin_input(client, message):
+            return
+    # Pyrogram runs only the FIRST matching handler per group, so the /batch
+    # input steps must be handled right here - a separate handler never fires.
+    if message.from_user.id in BATCH_STATE:
+        await handle_batch_input(client, message)
+        return
+    if "https://t.me/" in message.text:
+        await process_save_link(client, message, message.text)
+        return
+    # Not a link and not a command -> teach the user how to use the bot.
+    await message.reply(script.NO_LINK_TXT, parse_mode=enums.ParseMode.HTML)
+
+
 @Client.on_message(filters.command("batch") & filters.private)
 async def batch_command(client: Client, message: Message):
     user_id = message.from_user.id
