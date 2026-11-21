@@ -61,7 +61,7 @@ and redeploy. The Render logs show one line per gateway hit:
 | Variable            | Default            | Meaning                                                        |
 | ------------------- | ------------------ | -------------------------------------------------------------- |
 | `IS_VERIFY`         | `True`             | Master switch. `False` disables the gate for everyone.         |
-| `SHORTLINK_URL`     | `vipshort.in`      | Your shortener host (also used for the Referer check).         |
+| `SHORTLINK_URL`     | `shortxlinks.com`      | Your shortener host (also used for the Referer check).         |
 | `SHORTLINK_API`     | *(empty)*          | **Secret** — your shortener API key.                           |
 | `VERIFY_EXPIRE`     | `21600`            | How long a user stays verified, in seconds (21600 = 6 hours).  |
 | `VERIFY_TOKEN_TTL`  | `600`              | How long a verify link stays usable, in seconds (10 minutes).  |
@@ -75,15 +75,15 @@ and redeploy. The Render logs show one line per gateway hit:
 
 ---
 
-## vipshort setup
+## shortxlinks setup
 
 The bot calls:
 
 ```
-https://vipshort.in/api?api=<SHORTLINK_API>&url=<encoded gateway link>
+https://shortxlinks.com/api?api=<SHORTLINK_API>&url=<encoded gateway link>
 ```
 
-1. Create an account at <https://vipshort.in>.
+1. Create an account at <https://shortxlinks.com>.
 2. Copy your API key from the dashboard.
 3. Set `SHORTLINK_API` to that key (Render → Environment).
 

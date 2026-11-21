@@ -61,8 +61,8 @@ ERROR_MESSAGE = os.environ.get("ERROR_MESSAGE", "True").lower() == "true"
 IS_VERIFY = os.environ.get("IS_VERIFY", "True").lower() == "true"
 
 # Shortener / ad network used to gate free users.
-# vipshort.in API: https://vipshort.in/api?api=<KEY>&url=<dest>&alias=<alias>
-SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "vipshort.in")
+# shortxlinks.com API: https://shortxlinks.com/api?api=<KEY>&url=<dest>&alias=<alias>
+SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "shortxlinks.com")
 SHORTLINK_API = os.environ.get("SHORTLINK_API", "")
 SHORTLINK_ALIAS = os.environ.get("SHORTLINK_ALIAS", "")
 

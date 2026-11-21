@@ -55,7 +55,11 @@ services:
       - key: IS_VERIFY
         value: "True"
       - key: SHORTLINK_URL
-        value: vipshort.in
+        value: shortxlinks.com
+      # Comma separated allowlist for the referer check (shortxlinks
+      # returns .in links while the API is on .com)
+      - key: SHORTLINK_HOST
+        value: shortxlinks.com,shortxlinks.in
       # SECRET: paste your shortener API key in the Render dashboard (do NOT commit it)
       - key: SHORTLINK_API
         sync: false

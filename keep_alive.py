@@ -33,8 +33,14 @@ app = Flask(__name__)
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 TOKEN_TTL = int(os.environ.get("VERIFY_TOKEN_TTL", "600"))
 
-SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "vipshort.in")
-SHORTLINK_HOST = SHORTLINK_URL.replace("https://", "").replace("http://", "").strip("/").split("/")[0].lower()
+SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "shortxlinks.com")
+# One shortener can serve several domains (e.g. shortxlinks.com returns
+# shortxlinks.in links), so allow a comma-separated list. SHORTLINK_HOST
+# env overrides the host derived from SHORTLINK_URL.
+_derived_host = SHORTLINK_URL.replace("https://", "").replace("http://", "").strip("/").split("/")[0].lower()
+SHORTLINK_HOSTS = [h.strip().lower() for h in
+                   (os.environ.get("SHORTLINK_HOST") or _derived_host).split(",") if h.strip()]
+SHORTLINK_HOST = SHORTLINK_HOSTS[0] if SHORTLINK_HOSTS else ""
 
 REQUIRE_REFERER = os.environ.get("REQUIRE_REFERER", "True").lower() == "true"
 
@@ -208,9 +214,9 @@ GATEWAY_PAGE = """<!doctype html>
 def gateway(token):
     referer = (request.headers.get("Referer") or "").lower()
 
-    if (REQUIRE_REFERER and SHORTLINK_HOST
+    if (REQUIRE_REFERER and SHORTLINK_HOSTS
             and VERIFY_LINK_MODE not in _NO_REFERER_MODES):
-        if SHORTLINK_HOST not in referer:
+        if not any(h in referer for h in SHORTLINK_HOSTS):
             print(f"[gateway] BLOCKED token={token[:8]}... referer={referer!r}", flush=True)
             return Response(BLOCKED_PAGE, mimetype="text/html", status=403)
 
