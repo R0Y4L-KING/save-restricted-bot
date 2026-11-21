@@ -525,6 +525,7 @@ async def process_save_link(client: Client, message: Message, text: str, count: 
         is_private_link = "https://t.me/c/" in text
         is_batch = "https://t.me/b/" in text
         is_public_link = not is_private_link and not is_batch
+        batch_mode = toID > fromID
         for msgid in range(fromID, toID + 1):
            
             if batch_temp.IS_BATCH.get(message.from_user.id):
@@ -592,13 +593,17 @@ async def process_save_link(client: Client, message: Message, text: str, count: 
                 return await message.reply(f"<b>❌ Authentication Failed</b>\n\n<i>Your session may have expired. Please /logout and /login again.</i>\n<code>{e}</code>", parse_mode=enums.ParseMode.HTML)
             if is_private_link:
                 chatid = int("-100" + datas[4])
-                await handle_restricted_content(client, acc, message, chatid, msgid)
+                stop = await handle_restricted_content(client, acc, message, chatid, msgid, quiet=batch_mode)
             elif is_batch:
                 username = datas[4]
-                await handle_restricted_content(client, acc, message, username, msgid)
+                stop = await handle_restricted_content(client, acc, message, username, msgid, quiet=batch_mode)
             else:
                 username = datas[3]
-                await handle_restricted_content(client, acc, message, username, msgid)
+                stop = await handle_restricted_content(client, acc, message, username, msgid, quiet=batch_mode)
+            if stop == "abort":
+                # Same error would repeat for every remaining message -> stop here.
+                batch_temp.IS_BATCH[message.from_user.id] = True
+                return
             await asyncio.sleep(2)
         cancelled = batch_temp.IS_BATCH.get(message.from_user.id)
         batch_temp.IS_BATCH[message.from_user.id] = True
@@ -686,7 +691,8 @@ def split_binary(file_path, out_dir):
     return parts if len(parts) > 1 else []
 
 
-async def handle_restricted_content(client: Client, acc, message: Message, chat_target, msgid):
+async def handle_restricted_content(client: Client, acc, message: Message, chat_target, msgid,
+                               quiet: bool = False):
     try:
         msg: Message = await acc.get_messages(chat_target, msgid)
     except Exception as e:
@@ -700,6 +706,7 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
                 "Join it with that account, then send the link again.</blockquote>",
                 parse_mode=enums.ParseMode.HTML
             )
+            return "abort"
         elif "AUTH_KEY_UNREGISTERED" in err or "SESSION_REVOKED" in err or "USER_DEACTIVATED" in err:
             try:
                 await db.set_session(message.from_user.id, session=None)
@@ -710,6 +717,7 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
                 "<i>Please send /login again to reconnect your account.</i>",
                 parse_mode=enums.ParseMode.HTML
             )
+            return "abort"
         else:
             await message.reply(
                 "<b>❌ Could not open that post.</b>\n\n"
@@ -720,22 +728,25 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
                 f"<code>{e}</code>",
                 parse_mode=enums.ParseMode.HTML
             )
+            return "abort"
         return
     if msg.empty:
-        await message.reply(
-            "<b>❌ That post was not found.</b>\n\n"
-            "<i>It may have been deleted, or the link is wrong.</i>",
-            parse_mode=enums.ParseMode.HTML
-        )
+        if not quiet:
+            await message.reply(
+                "<b>❌ That post was not found.</b>\n\n"
+                "<i>It may have been deleted, or the link is wrong.</i>",
+                parse_mode=enums.ParseMode.HTML
+            )
         return
    
     msg_type = get_message_type(msg)
     if not msg_type:
-        await message.reply(
-            "<b>❌ Nothing to save in that post.</b>\n\n"
-            "<i>I can save videos, documents, audio and photos.</i>",
-            parse_mode=enums.ParseMode.HTML
-        )
+        if not quiet:
+            await message.reply(
+                "<b>❌ Nothing to save in that post.</b>\n\n"
+                "<i>I can save videos, documents, audio and photos.</i>",
+                parse_mode=enums.ParseMode.HTML
+            )
         return
     file_size = 0
     if msg_type == "Document": file_size = msg.document.file_size
