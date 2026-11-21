@@ -9,6 +9,9 @@ requests
 # --- Database & Utilities ---
 motor
 
+# --- UPI QR generation (dynamic amount QR on the payment screen) ---
+qrcode[pil]
+
 # --- Video splitting (bundles an ffmpeg binary, no system install needed) ---
 imageio-ffmpeg
 

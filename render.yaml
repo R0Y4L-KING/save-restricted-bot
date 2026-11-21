@@ -38,6 +38,10 @@ services:
         value: https://graph.org/file/242b7f1b52743938d81f1.jpg
       - key: UPI_ID
         value: 20213904@axl
+      - key: UPI_NAME
+        value: ModAppsKing
+      - key: HELP_LINK
+        value: https://t.me/SANATANI_B0Y
       - key: QR_CODE
         value: https://raw.githubusercontent.com/R0Y4L-KING/save-restricted-bot/main/assets/upi_qr.png
       - key: PAY_URL

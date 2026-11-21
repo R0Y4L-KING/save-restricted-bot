@@ -365,54 +365,8 @@ async def send_help(client: Client, message: Message):
     )
 @Client.on_message(filters.command(["plan", "premium"]))
 async def send_plan(client: Client, message: Message):
-    buttons = [
-        [InlineKeyboardButton("💳 Pay Now (UPI)", url=PAY_URL)],
-        [InlineKeyboardButton("📸 Send Payment Proof", url="https://t.me/SANATANI_B0Y")],
-        [InlineKeyboardButton("❌ Close Menu", callback_data="close_btn")]
-    ]
-    await client.send_photo(
-        chat_id=message.chat.id,
-        photo=SUBSCRIPTION,
-        caption=script.PREMIUM_TEXT.format(UPI_ID, QR_CODE),
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.HTML
-    )
-async def settings_panel(client, callback_query):
-    """
-    Renders the Settings Menu with professional layout.
-    """
-    user_id = callback_query.from_user.id
-    is_premium = await db.check_premium(user_id)
-    badge = "💎 Premium Member" if is_premium else "👤 Standard User"
-   
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📜 Command List", callback_data="cmd_list_btn")],
-        [InlineKeyboardButton("📊 Usage Stats", callback_data="user_stats_btn")],
-        [InlineKeyboardButton("🗑 Dump Chat Settings", callback_data="dump_chat_btn")],
-        [InlineKeyboardButton("🖼 Manage Thumbnail", callback_data="thumb_btn")],
-        [InlineKeyboardButton("📝 Edit Caption", callback_data="caption_btn")],
-        [InlineKeyboardButton("⬅️ Return to Home", callback_data="start_btn")]
-    ])
-   
-    text = f"<b>⚙️ Settings Dashboard</b>\n\n<b>Account Status:</b> {badge}\n<b>User ID:</b> <code>{user_id}</code>\n\n<i>Customize and manage your bot preferences below for an optimized experience:</i>"
-   
-    await callback_query.edit_message_caption(
-        caption=text,
-        reply_markup=buttons,
-        parse_mode=enums.ParseMode.HTML
-    )
-@Client.on_message(filters.text & filters.private & ~filters.regex("^/"))
-async def save(client: Client, message: Message):
-    # Pyrogram runs only the FIRST matching handler per group, so the /batch
-    # input steps must be handled right here - a separate handler never fires.
-    if message.from_user.id in BATCH_STATE:
-        await handle_batch_input(client, message)
-        return
-    if "https://t.me/" in message.text:
-        await process_save_link(client, message, message.text)
-        return
-    # Not a link and not a command -> teach the user how to use the bot.
-    await message.reply(script.NO_LINK_TXT, parse_mode=enums.ParseMode.HTML)
+    from cantarella.premium import show_plans
+    await show_plans(client, message)
 
 
 @Client.on_message(filters.command("batch") & filters.private)
@@ -928,20 +882,8 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
             await callback_query.answer()
             await send_verify_prompt(client, _MsgShim(message, uid))
     elif data == "buy_premium":
-        buttons = [
-            [InlineKeyboardButton("💳 Pay Now (UPI)", url=PAY_URL)],
-            [InlineKeyboardButton("📸 Send Payment Proof", url="https://t.me/SANATANI_B0Y")],
-            [InlineKeyboardButton("⬅️ Back to Home", callback_data="start_btn")]
-        ]
-        await client.edit_message_media(
-            chat_id=message.chat.id,
-            message_id=message.id,
-            media=InputMediaPhoto(
-                media=SUBSCRIPTION,
-                caption=script.PREMIUM_TEXT.format(UPI_ID, QR_CODE)
-            ),
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+        from cantarella.premium import show_plans
+        await show_plans(client, callback_query)
     elif data == "help_btn":
         # Captions are limited to 1024 chars, so send a normal text message
         # (limit 4096) instead of editing the photo caption.

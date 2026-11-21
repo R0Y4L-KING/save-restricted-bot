@@ -11,6 +11,7 @@ class Database:
         self.db = self._client[database_name]
         self.col = self.db.users
         self.vcol = self.db.verify_tokens
+        self.ocol = self.db.orders
     def new_user(self, id, name):
         return dict(
             id = id,
@@ -18,7 +19,8 @@ class Database:
             session = None,
             daily_usage = 0, # Added: Track saves
             limit_reset_time = None, # Added: Track 24h reset time
-            verified_until = 0 # Added: ad-verification expiry (epoch seconds)
+            verified_until = 0, # Added: ad-verification expiry (epoch seconds)
+            joined_at = datetime.datetime.utcnow().strftime('%Y-%m-%d')
         )
    
     async def add_user(self, id, name):
@@ -245,6 +247,73 @@ class Database:
         await self.vcol.update_one({'_id': token}, {'$set': {'used': True}})
         return rec
 
+
+    # ==========================================================
+    # Premium orders + payment (UPI)
+    # ==========================================================
+
+    async def save_order(self, order_id, data):
+        await self.ocol.update_one({'_id': str(order_id)}, {'$set': data}, upsert=True)
+
+    async def get_order(self, order_id):
+        return await self.ocol.find_one({'_id': str(order_id)})
+
+    async def set_order_status(self, order_id, status, **extra):
+        payload = {'status': status}
+        payload.update(extra)
+        await self.ocol.update_one({'_id': str(order_id)}, {'$set': payload})
+
+    async def pending_orders(self, limit=10):
+        cur = self.ocol.find({'status': 'claimed'}).sort('claimed_ts', -1).limit(int(limit))
+        return [doc async for doc in cur]
+
+    async def all_user_ids(self):
+        ids = []
+        async for u in self.col.find({}, {'id': 1}):
+            if u.get('id'):
+                ids.append(int(u['id']))
+        return ids
+
+    async def grant_premium_days(self, id, days):
+        """Extend premium by N days (0 = lifetime). Returns expiry string, or None for lifetime."""
+        user = await self.col.find_one({'id': int(id)}) or {}
+        if user.get('is_premium') and not user.get('premium_expiry'):
+            return None  # already lifetime
+        base = datetime.date.today()
+        exp = user.get('premium_expiry')
+        if user.get('is_premium') and exp:
+            try:
+                d = datetime.date.fromisoformat(str(exp)[:10])
+                if d > base:
+                    base = d
+            except Exception:
+                pass
+        if int(days) == 0:
+            expiry = None
+        else:
+            expiry = (base + datetime.timedelta(days=int(days))).isoformat()
+        await self.add_premium(id, expiry)
+        return expiry
+
+    async def bot_stats(self):
+        now_ts = int(time.time())
+        today = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+        revenue = 0
+        async for o in self.ocol.find({'status': 'approved'}, {'price': 1}):
+            try:
+                revenue += int(o.get('price') or 0)
+            except Exception:
+                pass
+        return {
+            'total': await self.col.count_documents({}),
+            'new_today': await self.col.count_documents({'joined_at': today}),
+            'verified': await self.col.count_documents({'verified_until': {'$gt': now_ts}}),
+            'premium': await self.col.count_documents({'is_premium': True}),
+            'orders': await self.ocol.count_documents({}),
+            'pending': await self.ocol.count_documents({'status': 'claimed'}),
+            'approved': await self.ocol.count_documents({'status': 'approved'}),
+            'revenue': revenue,
+        }
 
 
 db = Database(DB_URI, DB_NAME)
